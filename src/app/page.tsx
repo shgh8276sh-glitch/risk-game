@@ -30,7 +30,7 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // وضعیت‌های مربوط به تایید دوطرفه تاس برای هر حمله
+  // تایید دوطرفه تاس برای هر حمله
   const [attackerReadyForDice, setAttackerReadyForDice] = useState<boolean>(false);
   const [defenderReadyForDice, setDefenderReadyForDice] = useState<boolean>(false);
 
@@ -240,7 +240,7 @@ export default function RiskGamePage() {
 
   const localPlayer = gameState.players.find((p) => p.name === username) || gameState.players[0];
   const activePlayer = gameState.players[gameState.activePlayerIndex];
-  const isMyTurn = activePlayer.name === username; // بررسی اینکه آیا الان نوبت این کاربر است یا خیر
+  const isMyTurn = activePlayer.name === username;
 
   const updateStateAndSync = (newState: GameState) => {
     setGameState(newState);
@@ -271,9 +271,9 @@ export default function RiskGamePage() {
     updateStateAndSync(newState);
   };
 
-  // کلیک روی نقشه با احتساب اینکه فقط در نوبت خودت اجازه حرکت داری + هایلایت اقدامات
+  // کلیک روی نقشه (فقط در نوبت خودت و با امکان هایلایت)
   const handleTerritoryClick = (id: string) => {
-    if (!isMyTurn) return; // اگر نوبت ما نیست، هیچ تغییری نمی‌توانیم ایجاد کنیم
+    if (!isMyTurn) return; // خارج از نوبت هیچ حرکتی ثبت نمی‌شود
     const territory = gameState.territories[id];
     let updatedState = { ...gameState };
 
@@ -307,7 +307,7 @@ export default function RiskGamePage() {
     }
   };
 
-  // اجرای حمله دوطرفه تعاملی (برای هر حمله، مهاجم و مدافع هر دو باید دکمه بزنند)
+  // اجرای حمله دوطرفه تعاملی (برای هر بار حمله نیاز به تایید مهاجم و مدافع است)
   const handleExecuteCombat = () => {
     if (!gameState.selectedTerritoryId || !gameState.attackTargetId) return;
     const attacker = gameState.territories[gameState.selectedTerritoryId];
@@ -318,7 +318,7 @@ export default function RiskGamePage() {
     const newDefenderArmies = defender.armies - combatResult.defenderLosses;
 
     let newTerritories = { ...gameState.territories };
-    if (newDefenderLosses >= defender.armies || newDefenderArmies <= 0) {
+    if (newDefenderArmies <= 0) {
       newTerritories[gameState.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - 1 };
       newTerritories[gameState.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: 1 };
     } else {
@@ -362,7 +362,7 @@ export default function RiskGamePage() {
     setShowCardModal(false);
   };
 
-  // مدیریت فازهای سه‌گانه نوبت
+  // چرخش ۳ مرحله‌ای نوبت
   const nextPhaseOrTurn = () => {
     if (!isMyTurn) return;
     let updatedState = { ...gameState };
@@ -396,37 +396,54 @@ export default function RiskGamePage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center p-6 bg-[#1a120b] text-amber-100 relative" dir="rtl">
+      {/* دکمه راهنما */}
       <button onClick={() => setShowHelpModal(true)} className="fixed top-4 right-4 z-40 bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer">❓ راهنما</button>
 
-      {/* نمایش نوبت و سه مرحله سه‌گانه به همراه تعداد سربازهای قابل اضافه کردن */}
-      <header className="w-full max-w-5xl flex justify-between items-center mb-4 bg-[#2b1e16] p-4 rounded-xl border border-[#8c653d]">
+      {/* هدر بالایی منظم، استاندارد و تمیز مطابق با سبک نسخه آفلاین */}
+      <header className="w-full max-w-5xl flex justify-between items-center mb-6 bg-[#2b1e16] p-4 rounded-xl border border-[#8c653d] shadow-md">
         <div>
-          <h2 className="text-lg font-bold" style={{ color: activePlayer.color }}>
-            نوبت: {activePlayer.name} {!isMyTurn && <span className="text-xs text-amber-400 font-normal">(فقط تماشا می‌کنید)</span>}
+          <h2 className="text-xl font-bold" style={{ color: activePlayer.color }}>
+            نوبت: {activePlayer.name} {!isMyTurn && <span className="text-xs text-amber-400 font-normal">(در حال تماشا...)</span>}
           </h2>
-          <p className="text-xs text-amber-300">
-            مرحله نوبت: <span className="font-bold text-emerald-400">
-              {gameState.phase === 'reinforce' ? '۱. تقویت نیروها' : gameState.phase === 'attack' ? '۲. حمله' : '۳. جابجایی'}
-            </span>
+          <p className="text-xs text-amber-300 mt-1">
+            بازیکن: <span className="text-white font-bold">{username}</span> | دور: {gameState.turnNumber} | روم: {currentRoomCode}
+          </p>
+          <p className="text-xs text-emerald-400 font-bold mt-1">
+            مرحله نوبت: {gameState.phase === 'reinforce' ? '۱. تقویت نیروها' : gameState.phase === 'attack' ? '۲. حمله' : '۳. جابجایی استراتژیک'}
             {gameState.phase === 'reinforce' && ` | سرباز قابل اضافه کردن: ${gameState.reinforcementsRemaining}`}
           </p>
         </div>
+
         <div className="flex gap-2 items-center">
+          {/* دکمه Undo / برگشت فقط در فاز تقویت و نوبت خود کاربر فعال است */}
           {isMyTurn && gameState.phase === 'reinforce' && (
-            <button onClick={handleUndo} className="px-3 py-2 bg-yellow-700 hover:bg-yellow-600 text-xs font-bold rounded-lg cursor-pointer text-white">↩️ برگشت (Undo)</button>
+            <button onClick={handleUndo} className="px-3 py-2 bg-yellow-700 hover:bg-yellow-600 text-xs font-bold rounded-lg cursor-pointer text-white">
+              ↩️ برگشت (Undo)
+            </button>
           )}
-          <button onClick={() => setShowCardModal(true)} className="px-3 py-2 bg-amber-800 hover:bg-amber-700 text-xs font-bold rounded-lg cursor-pointer">🃏 کارت‌ها ({localPlayer.cards.length})</button>
-          <button onClick={() => setShowMissionModal(true)} className="px-3 py-2 bg-amber-700 hover:bg-amber-600 text-xs font-bold rounded-lg cursor-pointer">📜 ماموریت</button>
+
+          {/* کارت‌ها فقط در فاز اول قابل استفاده هستند */}
+          <button onClick={() => setShowCardModal(true)} className="px-3 py-2 bg-amber-800 hover:bg-amber-700 text-xs font-bold rounded-lg cursor-pointer">
+            🃏 کارت‌های من ({localPlayer.cards.length})
+          </button>
+
+          <button onClick={() => setShowMissionModal(true)} className="px-3 py-2 bg-amber-700 hover:bg-amber-600 text-xs font-bold rounded-lg cursor-pointer">
+            📜 ماموریت من
+          </button>
+
+          {/* دکمه فاز بعد فقط برای بازیکن فعلی در نوبتش کار می‌کند */}
           {isMyTurn && (
-            <button onClick={nextPhaseOrTurn} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-xs font-bold rounded-lg text-white cursor-pointer">مرحله بعد ➔</button>
+            <button onClick={nextPhaseOrTurn} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-xs font-bold rounded-lg text-white cursor-pointer shadow">
+              پایان فاز / مرحله بعد ➔
+            </button>
           )}
         </div>
       </header>
 
-      {/* سیستم تاس‌ریزی دوطرفه برای هر حمله: تا هر دو بازیکن دکمه را نزنند تاس ریخته نمی‌شود */}
+      {/* سیستم تاس‌ریزی دوطرفه برای هر حمله: نیاز به تایید همزمان مهاجم و مدافع */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
-        <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
-          <span className="text-xs font-bold text-red-200">⚔️ درخواست حمله ثبت شد! مهاجم و مدافع هر دو باید دکمه تاس خود را بزنند.</span>
+        <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg animate-pulse">
+          <span className="text-xs font-bold text-red-200">⚔️ درخواست حمله فعال! مهاجم و مدافع هر دو باید دکمه تاس خود را بزنند تا نبرد انجام شود.</span>
           <div className="flex gap-2">
             {isAttacker && (
               <button
@@ -453,13 +470,13 @@ export default function RiskGamePage() {
               </button>
             )}
             {!isAttacker && !isDefender && (
-              <span className="text-xs text-yellow-300">در حال انتظار برای تاس‌ریزی مهاجم و مدافع...</span>
+              <span className="text-xs text-yellow-300 font-bold">منتظر پاسخ مهاجم و مدافع برای تاس‌ریزی...</span>
             )}
           </div>
         </div>
       )}
 
-      {/* نقشه بازی با قابلیت هایلایت اقدامات */}
+      {/* نقشه بازی با قابلیت هایلایت زنده اقدامات برای همه بازیکنان */}
       <Map state={gameState} onSelectTerritory={handleTerritoryClick} />
 
       {showHelpModal && <HelpModal onClose={() => setShowHelpModal(false)} />}
