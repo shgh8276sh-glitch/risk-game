@@ -295,7 +295,7 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'attack') {
-      // لغو انتخاب حمله برای هر دو طرف همگام می‌شود
+      // لغو کامل حمله برای هر دو بازیکن از طریق سرور
       socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
       socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
 
@@ -387,6 +387,8 @@ export default function RiskGamePage() {
     const updatedState: GameState = {
       ...gameState,
       territories: newTerritories,
+      selectedTerritoryId: null,
+      attackTargetId: null,
       diceResult: {
         attacker: combatResult.attackerRolls,
         defender: combatResult.defenderRolls,
@@ -500,7 +502,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه با همگام‌سازی کامل برای مهاجم و مدافع */}
+      {/* بنر نبرد تاس دوطرفه با همگام‌سازی صددرصدی لغو و ریختن تاس */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>

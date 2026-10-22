@@ -77,7 +77,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت یکپارچه و همگام آمادگی تاس دوطرفه
+  // مدیریت دقیق آمادگی تاس دوطرفه در سرور
   socket.on('toggle_dice_ready', ({ roomCode, isAttacker, isReady }) => {
     const room = rooms[roomCode];
     if (!room) return;
@@ -91,14 +91,15 @@ io.on('connection', (socket) => {
     });
   });
 
-  // همگام‌سازی کامل و لحظه‌ای نقشه و وضعیت بازی برای همه بازیکنان
+  // همگام‌سازی کامل وضعیت بازی و نقشه
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
 
     room.gameState = newState;
-    // اگر هدف حمله یا انتخاب تغییر کرده (مثلاً لغو حمله)، وضعیت آماده‌باش تاس‌ها ریست شود
-    if (!newState.attackTargetId) {
+    
+    // اگر حمله لغو شده یا تغییر کرده، وضعیت تاس‌ها ریست شود تا صفحه مدافع هم پاک شود
+    if (!newState.attackTargetId || !newState.selectedTerritoryId) {
       room.attackerReady = false;
       room.defenderReady = false;
       io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
@@ -112,5 +113,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور بازی ریسک روی پورت ${PORT} با موفقیت اجرا شد.`);
+  console.log(`سرور بازی ریسک روی پورت ${PORT} فعال شد.`);
 });
