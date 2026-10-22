@@ -8,7 +8,6 @@ import { HelpModal } from '@/components/HelpModal';
 import { initializeGame } from '@/game/engine/setup';
 import { calculateReinforcements } from '@/game/engine/reinforcements';
 import { resolveCombat } from '@/game/engine/combat';
-import { createCardDeck } from '@/game/engine/cards';
 import { GameState, Card } from '@/game/engine/state';
 import { TERRITORIES } from '@/game/data/territories';
 import { socket } from '@/game/socket';
@@ -32,7 +31,6 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // بازیابی اطلاعات از حافظه مرورگر هنگام لود صفحه (جلوگیری از مشکل با رفرش)
   useEffect(() => {
     if (!socket.connected) {
       socket.connect();
@@ -41,17 +39,17 @@ export default function RiskGamePage() {
     const savedUsername = localStorage.getItem('risk_username');
     const savedRoomCode = localStorage.getItem('risk_roomCode');
 
-    if (savedUsername) {
-      setUsername(savedUsername);
-    }
+    if (savedUsername) setUsername(savedUsername);
 
     if (savedRoomCode && savedUsername) {
       setCurrentRoomCode(savedRoomCode);
-      // اتصال مجدد خودکار به روم بعد از رفرش
       socket.emit('join_room', { username: savedUsername, roomCode: savedRoomCode }, (response: any) => {
         if (response && response.success) {
           setPlayersList(response.players);
-          setInLobby(true);
+          if (response.gameState) {
+            setGameState(response.gameState);
+            setInLobby(false);
+          }
         } else {
           localStorage.removeItem('risk_roomCode');
         }
@@ -95,7 +93,6 @@ export default function RiskGamePage() {
         setCurrentRoomCode(response.roomCode);
         setPlayersList(response.players);
         setIsHost(true);
-        // ذخیره در حافظه مرورگر
         localStorage.setItem('risk_username', username);
         localStorage.setItem('risk_roomCode', response.roomCode);
       } else {
@@ -118,11 +115,14 @@ export default function RiskGamePage() {
         setCurrentRoomCode(response.roomCode);
         setPlayersList(response.players);
         setIsHost(false);
-        // ذخیره در حافظه مرورگر
         localStorage.setItem('risk_username', username);
         localStorage.setItem('risk_roomCode', response.roomCode);
+        if (response.gameState) {
+          setGameState(response.gameState);
+          setInLobby(false);
+        }
       } else {
-        setErrorMessage(response?.message || 'کد روم نامعتبر یا ظرفیت تکمیل است.');
+        setErrorMessage(response?.message || 'کد روم نامعتبر است.');
       }
     });
   };
@@ -132,7 +132,6 @@ export default function RiskGamePage() {
       playersList.map((p) => ({ name: p.name, color: p.color, isAI: false }))
     );
     initial.reinforcementsRemaining = calculateReinforcements(initial, initial.players[0].id);
-
     socket.emit('start_game', { roomCode: currentRoomCode, initialState: initial });
   };
 
@@ -156,16 +155,10 @@ export default function RiskGamePage() {
               type={showPassword ? "text" : "password"}
               value={adminSecretInput}
               onChange={(e) => setAdminSecretInput(e.target.value)}
-              placeholder="رمز عبور ادمین (فقط برای ساخت روم)..."
+              placeholder="رمز عبور ادمین..."
               className="w-full bg-[#1a120b] border border-[#8c653d] rounded-xl px-4 py-3 pl-12 text-xs text-amber-100 font-mono"
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute left-3 text-amber-400 cursor-pointer"
-            >
-              👁️
-            </button>
+            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute left-3 text-amber-400 cursor-pointer">👁️</button>
           </div>
 
           <button onClick={handleCreateRoom} className="w-full py-3 bg-amber-600 hover:bg-amber-500 font-bold text-sm rounded-xl text-white cursor-pointer">
@@ -194,7 +187,6 @@ export default function RiskGamePage() {
       <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-[#1a120b] text-amber-100" dir="rtl">
         <div className="text-center space-y-6 max-w-md bg-[#2b1e16] p-8 rounded-3xl border-2 border-amber-600 w-full shadow-2xl">
           <h2 className="text-2xl font-bold text-amber-400">اتاق انتظار آنلاین</h2>
-          <p className="text-xs text-amber-300/70">کد روم را به دوستانتان بدهید:</p>
           <p className="text-3xl font-mono font-extrabold text-emerald-400 tracking-widest">{currentRoomCode}</p>
           
           <div className="space-y-2 text-right bg-[#1a120b] p-4 rounded-xl border border-[#8c653d]">
@@ -202,7 +194,7 @@ export default function RiskGamePage() {
             {playersList.map((p, idx) => (
               <div key={idx} className="flex justify-between items-center text-xs bg-[#2b1e16] p-2 rounded-lg">
                 <span style={{ color: p.color }} className="font-bold">{p.name}</span>
-                {p.isHost && <span className="bg-amber-600 text-white px-2 py-0.5 rounded text-[10px]">سازنده (Host)</span>}
+                {p.isHost && <span className="bg-amber-600 text-white px-2 py-0.5 rounded text-[10px]">سازنده</span>}
               </div>
             ))}
           </div>
@@ -215,11 +207,8 @@ export default function RiskGamePage() {
             <p className="text-xs text-amber-400 animate-pulse py-3">منتظر بمانید تا سازنده روم بازی را شروع کند...</p>
           )}
 
-          <button 
-            onClick={() => { localStorage.clear(); window.location.reload(); }} 
-            className="text-[11px] text-red-400 hover:underline cursor-pointer pt-2"
-          >
-            خروج از روم و بازگشت به صفحه اول
+          <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="text-[11px] text-red-400 hover:underline cursor-pointer pt-2">
+            خروج از روم
           </button>
         </div>
       </main>
@@ -346,9 +335,7 @@ export default function RiskGamePage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center p-6 bg-[#1a120b] text-amber-100 relative" dir="rtl">
-      <button onClick={() => setShowHelpModal(true)} className="fixed top-4 right-4 z-40 bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer">
-        ❓ راهنما
-      </button>
+      <button onClick={() => setShowHelpModal(true)} className="fixed top-4 right-4 z-40 bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer">❓ راهنما</button>
 
       <header className="w-full max-w-5xl flex justify-between items-center mb-6 bg-[#2b1e16] p-4 rounded-xl border border-[#8c653d]">
         <div>
@@ -356,27 +343,16 @@ export default function RiskGamePage() {
           <p className="text-xs text-amber-300/60">بازیکن: {username} | دور: {gameState.turnNumber} | روم: {currentRoomCode}</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setShowCardModal(true)} className="px-3 py-2 bg-amber-800 hover:bg-amber-700 text-xs font-bold rounded-lg cursor-pointer">
-            🃏 کارت‌های من ({localPlayer.cards.length})
-          </button>
-          <button onClick={() => setShowMissionModal(true)} className="px-3 py-2 bg-amber-700 hover:bg-amber-600 text-xs font-bold rounded-lg cursor-pointer">
-            📜 ماموریت من
-          </button>
-          <button onClick={nextPhaseOrTurn} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-xs font-bold rounded-lg text-white cursor-pointer">
-            پایان فاز
-          </button>
+          <button onClick={() => setShowCardModal(true)} className="px-3 py-2 bg-amber-800 hover:bg-amber-700 text-xs font-bold rounded-lg cursor-pointer">🃏 کارت‌های من ({localPlayer.cards.length})</button>
+          <button onClick={() => setShowMissionModal(true)} className="px-3 py-2 bg-amber-700 hover:bg-amber-600 text-xs font-bold rounded-lg cursor-pointer">📜 ماموریت من</button>
+          <button onClick={nextPhaseOrTurn} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-xs font-bold rounded-lg text-white cursor-pointer">پایان فاز</button>
         </div>
       </header>
 
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/80 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center animate-bounce">
           <span className="text-xs font-bold text-red-200">⚔️ هدف حمله انتخاب شد! آماده پرتاب تاس مشترک هستید.</span>
-          <button
-            onClick={executeInteractiveAttack}
-            className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow-lg cursor-pointer transition"
-          >
-            🎲 پرتاب تاس و انجام حمله
-          </button>
+          <button onClick={executeInteractiveAttack} className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow-lg cursor-pointer transition">🎲 پرتاب تاس و انجام حمله</button>
         </div>
       )}
 
