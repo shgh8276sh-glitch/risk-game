@@ -23,7 +23,6 @@ function generateRoomCode() {
 io.on('connection', (socket) => {
   console.log('کاربر متصل شد:', socket.id);
 
-  // ۱. ساخت روم جدید
   socket.on('create_room', ({ username, playerId, maxPlayers, adminSecret }, callback) => {
     if (adminSecret !== ADMIN_SECRET) {
       return callback({ success: false, message: 'رمز عبور ادمین اشتباه است!' });
@@ -38,11 +37,9 @@ io.on('connection', (socket) => {
     };
 
     socket.join(roomCode);
-    console.log(`روم ساخته شد: ${roomCode} توسط ${username}`);
     callback({ success: true, roomCode, players: rooms[roomCode].players });
   });
 
-  // ۲. پیوستن به روم و اطلاع‌رسانی آنی به تمام اعضا
   socket.on('join_room', ({ username, playerId, roomCode }, callback) => {
     const room = rooms[roomCode];
     if (!room) {
@@ -81,11 +78,10 @@ io.on('connection', (socket) => {
 
     callback({ success: true, roomCode, players: room.players, gameState: room.gameState });
     
-    // ارسال آنی لیست جدید به تمام افراد داخل روم (شامل ادمین و بازیکنان جدید)
+    // ارسال زنده و همگانی لیست جدید بازیکنان به تمام اعضای روم (حل مشکل عدم نمایش افراد اضافه شده)
     io.in(roomCode).emit('room_updated', { players: room.players });
   });
 
-  // ۳. دکمه رفرش دستی برای دریافت لیست بازیکنان
   socket.on('request_room_players', ({ roomCode }) => {
     const room = rooms[roomCode];
     if (room) {
@@ -93,17 +89,15 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ۴. شروع بازی توسط ادمین و انتقال همگانی به صفحه بازی
   socket.on('start_game', ({ roomCode, initialState }) => {
     const room = rooms[roomCode];
     if (room) {
       room.gameState = initialState;
       io.in(roomCode).emit('game_started', initialState);
-      console.log(`بازی در روم ${roomCode} با موفقیت شروع شد.`);
+      console.log(`بازی در روم ${roomCode} شروع شد.`);
     }
   });
 
-  // ۵. همگام‌سازی وضعیت بازی
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (room) {
@@ -119,5 +113,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور پیشرفته روی پورت ${PORT} روشن شد.`);
+  console.log(`سرور روی پورت ${PORT} روشن شد.`);
 });
