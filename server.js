@@ -75,6 +75,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // مدیریت یکپارچه وضعیت تاس و هماهنگی بین مهاجم و مدافع
   socket.on('toggle_dice_ready', ({ roomCode, isAttacker, isReady }) => {
     const room = rooms[roomCode];
     if (!room) return;
@@ -88,15 +89,10 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('update_game_state', ({ roomCode, newState, senderUsername }) => {
+  // به‌روزرسانی و همگام‌سازی کامل نقشه و وضعیت بازی برای همه بازیکنان در لحظه
+  socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
-    if (!room || !room.gameState) return;
-
-    const activePlayer = room.gameState.players[room.gameState.activePlayerIndex];
-
-    if (!activePlayer || activePlayer.name !== senderUsername) {
-      return;
-    }
+    if (!room) return;
 
     room.gameState = newState;
     io.in(roomCode).emit('game_state_updated', newState);
@@ -107,5 +103,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور آماده نبرد آنلاین است.`);
+  console.log(`سرور همگام‌سازی نقشه و تاس روی پورت ${PORT} فعال است.`);
 });

@@ -29,7 +29,6 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // آمادگی تاس که از طریق سوکت هماهنگ می‌شود
   const [attackerReady, setAttackerReady] = useState<boolean>(false);
   const [defenderReady, setDefenderReady] = useState<boolean>(false);
 
@@ -89,7 +88,6 @@ export default function RiskGamePage() {
       }
     });
 
-    // دریافت آمادگی تاس دوطرفه
     socket.on('dice_ready_updated', ({ attackerReady: aReady, defenderReady: dReady }) => {
       setAttackerReady(aReady);
       setDefenderReady(dReady);
@@ -256,6 +254,7 @@ export default function RiskGamePage() {
   const activePlayer = gameState.players[gameState.activePlayerIndex];
   const isMyTurn = activePlayer.name === username;
 
+  // تشخیص دقیق مهاجم و مدافع از روی نام‌های کاربری ثبت‌شده در بازی
   const attackerTerritory = gameState.selectedTerritoryId ? gameState.territories[gameState.selectedTerritoryId] : null;
   const defenderTerritory = gameState.attackTargetId ? gameState.territories[gameState.attackTargetId] : null;
 
@@ -267,10 +266,9 @@ export default function RiskGamePage() {
 
   const updateStateAndSync = (newState: GameState) => {
     setGameState(newState);
-    socket.emit('update_game_state', { roomCode: currentRoomCode, newState, senderUsername: username });
+    socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
   };
 
-  // قابلیت لغو و Undo در تمامی ۳ مرحله
   const handleUndo = () => {
     if (!isMyTurn) return;
 
@@ -294,7 +292,6 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'attack') {
-      // لغو حمله جاری
       setAttackerReady(false);
       setDefenderReady(false);
       socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
@@ -307,7 +304,6 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'fortify') {
-      // لغو انتخاب مبدأ/مقصد پخش نیرو
       const newState: GameState = {
         ...gameState,
         selectedTerritoryId: null,
@@ -362,11 +358,7 @@ export default function RiskGamePage() {
 
     socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: roleIsAttacker, isReady: nextVal });
 
-    // اگر هر دو آماده شدند نبرد فوراً اجرا می‌شود
-    const currentAttackerReady = roleIsAttacker ? nextVal : attackerReady;
-    const currentDefenderReady = !roleIsAttacker ? nextVal : defenderReady;
-
-    if (currentAttackerReady && currentDefenderReady) {
+    if ((roleIsAttacker ? nextVal : attackerReady) && (!roleIsAttacker ? nextVal : defenderReady)) {
       handleExecuteCombat();
     }
   };
@@ -479,7 +471,6 @@ export default function RiskGamePage() {
         </div>
 
         <div className="flex gap-2 items-center">
-          {/* دکمه لغو / بازگشت هوشمند در هر ۳ مرحله */}
           {isMyTurn && (
             <button onClick={handleUndo} className="px-3 py-2 bg-yellow-700 hover:bg-yellow-600 text-xs font-bold rounded-lg cursor-pointer text-white">
               ↩️ {gameState.phase === 'reinforce' ? 'بازگشت (Undo)' : gameState.phase === 'attack' ? 'لغو انتخاب حمله' : 'لغو جابجایی'}
@@ -508,10 +499,10 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه با آمادگی آنلاین زنده */}
+      {/* بنر نبرد تاس دوطرفه با نمایش دقیق دکمه برای مهاجم و مدافع */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
-          <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال! هر دو بازیکن مهاجم و مدافع باید دکمه تاس خود را بزنند.</span>
+          <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
           <div className="flex gap-2">
             {isAttacker && (
               <button
@@ -530,7 +521,7 @@ export default function RiskGamePage() {
               </button>
             )}
             {!isAttacker && !isDefender && (
-              <span className="text-xs text-yellow-300 font-bold">منتظر تایید تاس توسط مهاجم و مدافع...</span>
+              <span className="text-xs text-yellow-300 font-bold">منتظر تایید تاس مهاجم و مدافع...</span>
             )}
           </div>
         </div>
