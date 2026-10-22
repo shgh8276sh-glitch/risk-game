@@ -12,8 +12,8 @@ const io = new Server(server, {
     origin: '*',
     methods: ['GET', 'POST'],
   },
-  pingTimeout: 60000,
-  pingInterval: 25000,
+  pingTimeout: 120000,
+  pingInterval: 10000,
 });
 
 const rooms = {};
@@ -41,10 +41,11 @@ io.on('connection', (socket) => {
     };
 
     socket.join(roomCode);
+    console.log(`روم ساخته شد: ${roomCode} توسط ${username}`);
     callback({ success: true, roomCode, players: rooms[roomCode].players });
   });
 
-  // ۲. پیوستن به روم (هندل کردن دقیق رفرش بدون ساخت کاربر تکراری)
+  // ۲. پیوستن به روم (همگام‌سازی زنده برای همه اعضا)
   socket.on('join_room', ({ username, playerId, roomCode }, callback) => {
     const room = rooms[roomCode];
 
@@ -54,11 +55,9 @@ io.on('connection', (socket) => {
 
     socket.join(roomCode);
 
-    // جستجو بر اساس شناسه ثابت یا نام کاربر
     let existingPlayer = room.players.find(p => p.playerId === playerId || p.name === username);
 
     if (existingPlayer) {
-      // به‌روزرسانی socket.id جدید برای کاربر قبلی (جلوگیری از ساخت بازیکن جدید)
       existingPlayer.socketId = socket.id;
       existingPlayer.playerId = playerId;
       if (room.hostPlayerId === playerId) {
@@ -85,19 +84,30 @@ io.on('connection', (socket) => {
     }
 
     callback({ success: true, roomCode, players: room.players, gameState: room.gameState });
-    io.to(roomCode).emit('room_updated', { players: room.players });
+    
+    // ارسال زنده لیست جدید تمام بازیکنان برای همه حاضرین در روم
+    io.in(roomCode).emit('room_updated', { players: room.players });
   });
 
-  // ۳. شروع بازی
+  // ۳. درخواست لیست به‌روز (دکمه رفرش لیست)
+  socket.on('request_room_players', ({ roomCode }) => {
+    const room = rooms[roomCode];
+    if (room) {
+      io.in(roomCode).emit('room_updated', { players: room.players });
+    }
+  });
+
+  // ۴. شروع بازی توسط سازنده روم
   socket.on('start_game', ({ roomCode, initialState }) => {
     const room = rooms[roomCode];
     if (room) {
       room.gameState = initialState;
-      io.to(roomCode).emit('game_started', initialState);
+      io.in(roomCode).emit('game_started', initialState);
+      console.log(`بازی در روم ${roomCode} شروع شد.`);
     }
   });
 
-  // ۴. همگام‌سازی وضعیت
+  // ۵. همگام‌سازی وضعیت بازی
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (room) {

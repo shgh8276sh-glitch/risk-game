@@ -31,7 +31,6 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // گرفتن یا ساخت شناسه یکتای سیستم برای جلوگیری از تکرار کاربر با رفرش
   const getOrCreatePlayerId = () => {
     let pid = localStorage.getItem('risk_player_id');
     if (!pid) {
@@ -71,6 +70,7 @@ export default function RiskGamePage() {
       });
     }
 
+    // دریافت لیست به‌روزرسانی‌شده همه‌ی بازیکنان موجود در روم
     socket.on('room_updated', ({ players }) => {
       setPlayersList(players);
       const pid = getOrCreatePlayerId();
@@ -152,11 +152,27 @@ export default function RiskGamePage() {
     });
   };
 
+  const handleRefreshPlayers = () => {
+    if (currentRoomCode) {
+      socket.emit('request_room_players', { roomCode: currentRoomCode });
+    }
+  };
+
   const handleStartOnlineGame = () => {
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    if (playersList.length < 1) {
+      setErrorMessage('حداقل باید یک بازیکن در روم باشد.');
+      return;
+    }
+
     const initial = initializeGame(
       playersList.map((p) => ({ name: p.name, color: p.color, isAI: false }))
     );
     initial.reinforcementsRemaining = calculateReinforcements(initial, initial.players[0].id);
+
     socket.emit('start_game', { roomCode: currentRoomCode, initialState: initial });
   };
 
@@ -211,13 +227,19 @@ export default function RiskGamePage() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-[#1a120b] text-amber-100" dir="rtl">
         <div className="text-center space-y-6 max-w-md bg-[#2b1e16] p-8 rounded-3xl border-2 border-amber-600 w-full shadow-2xl">
-          <h2 className="text-2xl font-bold text-amber-400">اتاق انتظار آنلاین</h2>
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-bold text-amber-400">اتاق انتظار آنلاین</h2>
+            <button onClick={handleRefreshPlayers} className="text-xs bg-amber-800 hover:bg-amber-700 text-amber-200 px-3 py-1 rounded-lg cursor-pointer">
+              🔄 بروزرسانی لیست
+            </button>
+          </div>
+
           <p className="text-3xl font-mono font-extrabold text-emerald-400 tracking-widest">{currentRoomCode}</p>
           
           <div className="space-y-2 text-right bg-[#1a120b] p-4 rounded-xl border border-[#8c653d]">
-            <p className="text-xs font-bold text-amber-400 mb-2">بازیکنان حاضر در روم:</p>
+            <p className="text-xs font-bold text-amber-400 mb-2">بازیکنان حاضر در روم ({playersList.length} نفر):</p>
             {playersList.map((p, idx) => (
-              <div key={idx} className="flex justify-between items-center text-xs bg-[#2b1e16] p-2 rounded-lg">
+              <div key={idx} className="flex justify-between items-center text-xs bg-[#2b1e16] p-2.5 rounded-lg border border-[#8c653d]/30">
                 <span style={{ color: p.color }} className="font-bold">{p.name}</span>
                 {p.isHost && <span className="bg-amber-600 text-white px-2 py-0.5 rounded text-[10px]">سازنده (Host)</span>}
               </div>
@@ -225,8 +247,8 @@ export default function RiskGamePage() {
           </div>
 
           {isHost ? (
-            <button onClick={handleStartOnlineGame} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 font-bold text-sm rounded-xl text-white cursor-pointer shadow-lg">
-              🚀 شروع بازی آنلاین برای همه
+            <button onClick={handleStartOnlineGame} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 font-bold text-sm rounded-xl text-white cursor-pointer shadow-lg transition">
+              🚀 شروع بازی آنلاین برای همه ({playersList.length} نفر)
             </button>
           ) : (
             <p className="text-xs text-amber-400 animate-pulse py-3">منتظر بمانید تا سازنده روم بازی را شروع کند...</p>
