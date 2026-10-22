@@ -247,10 +247,12 @@ export default function RiskGamePage() {
 
   const localPlayer = gameState.players.find((p) => p.name === username) || gameState.players[0];
   const activePlayer = gameState.players[gameState.activePlayerIndex];
+  
+  // بررسی دقیق نوبت: آیا این دستگاه متعلق به بازیکن فعال است؟
   const isMyTurn = activePlayer.name === username;
 
   const updateStateAndSync = (newState: GameState) => {
-    if (!isMyTurn) return; // قفل امنیتی فرانت‌اند
+    if (!isMyTurn) return; // قفل فرانت‌اند: اگر نوبت ما نیست اجازه ارسال تغییرات را نداریم
     setGameState(newState);
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState, senderUsername: username });
   };
@@ -279,7 +281,7 @@ export default function RiskGamePage() {
   };
 
   const handleTerritoryClick = (id: string) => {
-    if (!isMyTurn) return; // قفل کامل نقشه در خارج از نوبت
+    if (!isMyTurn) return; // قفل کامل نقشه: در خارج از نوبت هیچ‌کس حق کلیک یا تغییر ندارد
     const territory = gameState.territories[id];
     let updatedState = { ...gameState };
 

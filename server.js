@@ -73,20 +73,21 @@ io.on('connection', (socket) => {
     }
   });
 
-  // قفل امنیتی سرور: بررسی دقیق اینکه آیا فرستنده درخواست، بازیکنِ نوبت فعلی است یا خیر
+  // قفل امنیتی سرور: بررسی اینکه فرستنده درخواست حتماً بازیکنِ نوبت جاری باشد
   socket.on('update_game_state', ({ roomCode, newState, senderUsername }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
 
     const activePlayer = room.gameState.players[room.gameState.activePlayerIndex];
 
-    // اگر فرستنده تغییر، بازیکن نوبت فعلی نباشد، سرور تغییرات را کلاً نادیده می‌گیرد
-    if (activePlayer && activePlayer.name !== senderUsername) {
-      console.log(`تلاش غیرمجاز توسط ${senderUsername} در نوبت ${activePlayer.name} مسدود شد.`);
+    // اگر کسی که درخواست تغییر داده، بازیکن نوبت فعلی نباشد، سرور آن را بلافاصله مسدود می‌کند
+    if (!activePlayer || activePlayer.name !== senderUsername) {
+      console.log(`تلاش غیرمجاز توسط ${senderUsername} در نوبت ${activePlayer?.name} مسدود شد.`);
       return;
     }
 
     room.gameState = newState;
+    // ارسال دقیق وضعیت جدید به تمام بازیکنان حاضر در روم تا نقشه برای همه یکسان آپدیت شود
     io.in(roomCode).emit('game_state_updated', newState);
   });
 
