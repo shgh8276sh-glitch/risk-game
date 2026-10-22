@@ -30,7 +30,6 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const [hasConqueredThisTurn, setHasConqueredThisTurn] = useState<boolean>(false);
   const [attackerReadyForDice, setAttackerReadyForDice] = useState<boolean>(false);
   const [defenderReadyForDice, setDefenderReadyForDice] = useState<boolean>(false);
 
@@ -247,12 +246,10 @@ export default function RiskGamePage() {
 
   const localPlayer = gameState.players.find((p) => p.name === username) || gameState.players[0];
   const activePlayer = gameState.players[gameState.activePlayerIndex];
-  
-  // بررسی دقیق نوبت: آیا این دستگاه متعلق به بازیکن فعال است؟
   const isMyTurn = activePlayer.name === username;
 
   const updateStateAndSync = (newState: GameState) => {
-    if (!isMyTurn) return; // قفل فرانت‌اند: اگر نوبت ما نیست اجازه ارسال تغییرات را نداریم
+    if (!isMyTurn) return;
     setGameState(newState);
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState, senderUsername: username });
   };
@@ -281,7 +278,7 @@ export default function RiskGamePage() {
   };
 
   const handleTerritoryClick = (id: string) => {
-    if (!isMyTurn) return; // قفل کامل نقشه: در خارج از نوبت هیچ‌کس حق کلیک یا تغییر ندارد
+    if (!isMyTurn) return;
     const territory = gameState.territories[id];
     let updatedState = { ...gameState };
 
@@ -289,7 +286,6 @@ export default function RiskGamePage() {
       if (territory.ownerId === activePlayer.id && gameState.reinforcementsRemaining > 0) {
         updatedState = {
           ...gameState,
-          highlightedTerritoryId: id,
           territories: { ...gameState.territories, [id]: { ...territory, armies: territory.armies + 1 } },
           reinforcementsRemaining: gameState.reinforcementsRemaining - 1,
           reinforcementHistory: [...(gameState.reinforcementHistory || []), { territoryId: id, armiesAdded: 1 }],
@@ -299,16 +295,16 @@ export default function RiskGamePage() {
     } else if (gameState.phase === 'attack') {
       if (!gameState.selectedTerritoryId) {
         if (territory.ownerId === activePlayer.id && territory.armies > 1) {
-          updatedState = { ...gameState, selectedTerritoryId: id, highlightedTerritoryId: id };
+          updatedState = { ...gameState, selectedTerritoryId: id };
           updateStateAndSync(updatedState);
         }
       } else if (gameState.selectedTerritoryId === id) {
-        updatedState = { ...gameState, selectedTerritoryId: null, attackTargetId: null, highlightedTerritoryId: null };
+        updatedState = { ...gameState, selectedTerritoryId: null, attackTargetId: null };
         updateStateAndSync(updatedState);
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
-          updatedState = { ...gameState, attackTargetId: id, highlightedTerritoryId: id };
+          updatedState = { ...gameState, attackTargetId: id };
           updateStateAndSync(updatedState);
         }
       }
@@ -325,13 +321,9 @@ export default function RiskGamePage() {
     const newDefenderArmies = defender.armies - combatResult.defenderLosses;
 
     let newTerritories = { ...gameState.territories };
-    let conquered = false;
-
     if (newDefenderArmies <= 0) {
       newTerritories[gameState.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - 1 };
       newTerritories[gameState.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: 1 };
-      conquered = true;
-      setHasConqueredThisTurn(true);
     } else {
       newTerritories[gameState.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
       newTerritories[gameState.attackTargetId] = { id: defender.id, ownerId: defender.ownerId, armies: newDefenderArmies };
@@ -343,7 +335,7 @@ export default function RiskGamePage() {
       diceResult: {
         attacker: combatResult.attackerRolls,
         defender: combatResult.defenderRolls,
-        message: conquered ? '🎉 منطقه فتح شد!' : `تلفات مهاجم: ${combatResult.attackerLosses} | مدافع: ${combatResult.defenderLosses}`,
+        message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد!' : `تلفات مهاجم: ${combatResult.attackerLosses} | مدافع: ${combatResult.defenderLosses}`,
       },
     };
 
@@ -383,22 +375,6 @@ export default function RiskGamePage() {
     } else if (gameState.phase === 'attack') {
       updatedState.phase = 'fortify';
     } else {
-      let updatedPlayers = [...gameState.players];
-      if (hasConqueredThisTurn) {
-        const deck = gameState.cardDeck || [];
-        if (deck.length > 0) {
-          const drawnCard = deck[0];
-          const remainingDeck = deck.slice(1);
-          updatedPlayers = updatedPlayers.map((p, idx) => {
-            if (idx === gameState.activePlayerIndex) {
-              return { ...p, cards: [...p.cards, drawnCard] };
-            }
-            return p;
-          });
-          updatedState.cardDeck = remainingDeck;
-        }
-      }
-
       const nextIndex = (gameState.activePlayerIndex + 1) % gameState.players.length;
       const nextPlayer = gameState.players[nextIndex];
       const nextTerritoriesCount = Object.values(gameState.territories).filter(t => t.ownerId === nextPlayer.id).length;
@@ -406,18 +382,14 @@ export default function RiskGamePage() {
 
       updatedState = {
         ...updatedState,
-        players: updatedPlayers,
         phase: 'reinforce',
         activePlayerIndex: nextIndex,
         reinforcementsRemaining: newReinforcements,
         turnNumber: gameState.turnNumber + 1,
         selectedTerritoryId: null,
         attackTargetId: null,
-        highlightedTerritoryId: null,
         reinforcementHistory: [],
       };
-
-      setHasConqueredThisTurn(false);
     }
 
     updateStateAndSync(updatedState);
@@ -536,7 +508,7 @@ export default function RiskGamePage() {
           attackerRolls={gameState.diceResult.attacker} 
           defenderRolls={gameState.diceResult.defender} 
           message={gameState.diceResult.message} 
-          onClose={() => { setShowDiceModal(false); setGameState({ ...gameState, selectedTerritoryId: null, attackTargetId: null, highlightedTerritoryId: null }); }} 
+          onClose={() => { setShowDiceModal(false); setGameState({ ...gameState, selectedTerritoryId: null, attackTargetId: null }); }} 
         />
       )}
     </main>
