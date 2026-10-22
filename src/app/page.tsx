@@ -248,8 +248,17 @@ export default function RiskGamePage() {
   const activePlayer = gameState.players[gameState.activePlayerIndex];
   const isMyTurn = activePlayer.name === username;
 
+  // تشخیص دقیق مهاجم و مدافع بر اساس نام کاربری مالکان سرزمین‌های در حال نبرد
+  const attackerTerritory = gameState.selectedTerritoryId ? gameState.territories[gameState.selectedTerritoryId] : null;
+  const defenderTerritory = gameState.attackTargetId ? gameState.territories[gameState.attackTargetId] : null;
+
+  const attackerPlayer = attackerTerritory ? gameState.players.find(p => p.id === attackerTerritory.ownerId) : null;
+  const defenderPlayer = defenderTerritory ? gameState.players.find(p => p.id === defenderTerritory.ownerId) : null;
+
+  const isAttacker = attackerPlayer?.name === username;
+  const isDefender = defenderPlayer?.name === username;
+
   const updateStateAndSync = (newState: GameState) => {
-    if (!isMyTurn) return;
     setGameState(newState);
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState, senderUsername: username });
   };
@@ -395,9 +404,6 @@ export default function RiskGamePage() {
     updateStateAndSync(updatedState);
   };
 
-  const isDefender = gameState.attackTargetId && gameState.territories[gameState.attackTargetId]?.ownerId === localPlayer.id;
-  const isAttacker = gameState.selectedTerritoryId && gameState.territories[gameState.selectedTerritoryId]?.ownerId === localPlayer.id;
-
   return (
     <main className="flex min-h-screen flex-col items-center p-6 bg-[#1a120b] text-amber-100 relative" dir="rtl">
       <button onClick={() => setShowHelpModal(true)} className="fixed top-4 right-4 z-40 bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer">❓ راهنما</button>
@@ -445,9 +451,10 @@ export default function RiskGamePage() {
         </div>
       </header>
 
+      {/* بنر نبرد تاس دوطرفه */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
-          <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال! مهاجم و مدافع باید دکمه تاس خود را بزنند.</span>
+          <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال! هر دو بازیکن مهاجم و مدافع باید دکمه تاس خود را بزنند.</span>
           <div className="flex gap-2">
             {isAttacker && (
               <button
@@ -474,7 +481,7 @@ export default function RiskGamePage() {
               </button>
             )}
             {!isAttacker && !isDefender && (
-              <span className="text-xs text-yellow-300 font-bold">منتظر تایید تاس مهاجم و مدافع...</span>
+              <span className="text-xs text-yellow-300 font-bold">منتظر تایید تاس توسط مهاجم و مدافع...</span>
             )}
           </div>
         </div>
