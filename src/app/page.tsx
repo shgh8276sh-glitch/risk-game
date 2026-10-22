@@ -83,6 +83,10 @@ export default function RiskGamePage() {
 
     socket.on('game_state_updated', (newState) => {
       setGameState(newState);
+      if (!newState.attackTargetId) {
+        setAttackerReady(false);
+        setDefenderReady(false);
+      }
       if (newState.diceResult) {
         setShowDiceModal(true);
       }
@@ -254,7 +258,6 @@ export default function RiskGamePage() {
   const activePlayer = gameState.players[gameState.activePlayerIndex];
   const isMyTurn = activePlayer.name === username;
 
-  // تشخیص دقیق مهاجم و مدافع از روی نام‌های کاربری ثبت‌شده در بازی
   const attackerTerritory = gameState.selectedTerritoryId ? gameState.territories[gameState.selectedTerritoryId] : null;
   const defenderTerritory = gameState.attackTargetId ? gameState.territories[gameState.attackTargetId] : null;
 
@@ -292,8 +295,7 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'attack') {
-      setAttackerReady(false);
-      setDefenderReady(false);
+      // لغو انتخاب حمله برای هر دو طرف همگام می‌شود
       socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
       socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
 
@@ -336,15 +338,15 @@ export default function RiskGamePage() {
         }
       } else if (gameState.selectedTerritoryId === id) {
         updatedState = { ...gameState, selectedTerritoryId: null, attackTargetId: null };
-        setAttackerReady(false);
-        setDefenderReady(false);
+        socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
+        socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
         updateStateAndSync(updatedState);
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
           updatedState = { ...gameState, attackTargetId: id };
-          setAttackerReady(false);
-          setDefenderReady(false);
+          socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
+          socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
           updateStateAndSync(updatedState);
         }
       }
@@ -353,12 +355,13 @@ export default function RiskGamePage() {
 
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
     const nextVal = roleIsAttacker ? !attackerReady : !defenderReady;
-    if (roleIsAttacker) setAttackerReady(nextVal);
-    else setDefenderReady(nextVal);
-
     socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: roleIsAttacker, isReady: nextVal });
 
-    if ((roleIsAttacker ? nextVal : attackerReady) && (!roleIsAttacker ? nextVal : defenderReady)) {
+    // بررسی اینکه آیا با این کلیک هر دو آماده شده‌اند یا خیر
+    const aReady = roleIsAttacker ? nextVal : attackerReady;
+    const dReady = !roleIsAttacker ? nextVal : defenderReady;
+
+    if (aReady && dReady) {
       handleExecuteCombat();
     }
   };
@@ -391,8 +394,6 @@ export default function RiskGamePage() {
       },
     };
 
-    setAttackerReady(false);
-    setDefenderReady(false);
     socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
     socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
 
@@ -447,8 +448,8 @@ export default function RiskGamePage() {
       };
     }
 
-    setAttackerReady(false);
-    setDefenderReady(false);
+    socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
+    socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
     updateStateAndSync(updatedState);
   };
 
@@ -499,7 +500,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه با نمایش دقیق دکمه برای مهاجم و مدافع */}
+      {/* بنر نبرد تاس دوطرفه با همگام‌سازی کامل برای مهاجم و مدافع */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>

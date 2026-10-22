@@ -71,11 +71,13 @@ io.on('connection', (socket) => {
     const room = rooms[roomCode];
     if (room) {
       room.gameState = initialState;
+      room.attackerReady = false;
+      room.defenderReady = false;
       io.in(roomCode).emit('game_started', initialState);
     }
   });
 
-  // مدیریت یکپارچه وضعیت تاس و هماهنگی بین مهاجم و مدافع
+  // مدیریت یکپارچه و همگام آمادگی تاس دوطرفه
   socket.on('toggle_dice_ready', ({ roomCode, isAttacker, isReady }) => {
     const room = rooms[roomCode];
     if (!room) return;
@@ -89,12 +91,19 @@ io.on('connection', (socket) => {
     });
   });
 
-  // به‌روزرسانی و همگام‌سازی کامل نقشه و وضعیت بازی برای همه بازیکنان در لحظه
+  // همگام‌سازی کامل و لحظه‌ای نقشه و وضعیت بازی برای همه بازیکنان
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
 
     room.gameState = newState;
+    // اگر هدف حمله یا انتخاب تغییر کرده (مثلاً لغو حمله)، وضعیت آماده‌باش تاس‌ها ریست شود
+    if (!newState.attackTargetId) {
+      room.attackerReady = false;
+      room.defenderReady = false;
+      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
+    }
+
     io.in(roomCode).emit('game_state_updated', newState);
   });
 
@@ -103,5 +112,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور همگام‌سازی نقشه و تاس روی پورت ${PORT} فعال است.`);
+  console.log(`سرور بازی ریسک روی پورت ${PORT} با موفقیت اجرا شد.`);
 });
