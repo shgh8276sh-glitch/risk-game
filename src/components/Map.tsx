@@ -8,9 +8,12 @@ import { ArmyToken } from './ArmyToken';
 interface MapProps {
   state: GameState;
   onSelectTerritory: (id: string) => void;
+  currentUsername?: string; // اضافه شدن نام کاربری برای تشخیص نوبت
 }
 
 export const Map: React.FC<MapProps> = ({ state, onSelectTerritory }) => {
+  const activePlayer = state.players[state.activePlayerIndex];
+
   return (
     <div className="w-full max-w-6xl flex flex-col items-center gap-4" dir="rtl">
       {/* راهنماهای بالای نقشه */}
@@ -34,7 +37,7 @@ export const Map: React.FC<MapProps> = ({ state, onSelectTerritory }) => {
           </p>
         </div>
 
-        {/* ۲. راهنمای جامع کارت‌ها و قانون تعداد قلمروها */}
+        {/* ۲. راهنمای جامع کارت‌ها و قانون قلمروها */}
         <div className="bg-[#2b1e16] border border-[#8c653d] p-3 rounded-xl text-amber-200 shadow-md space-y-2">
           <p className="font-bold text-amber-400 border-b border-[#8c653d]/50 pb-1 flex items-center gap-1">
             <span>🃏</span> راهنمای جامع کارت‌ها و قانون قلمروها:
@@ -77,8 +80,12 @@ export const Map: React.FC<MapProps> = ({ state, onSelectTerritory }) => {
         <svg viewBox="0 0 1000 600" className="w-full h-full relative z-10 pointer-events-none">
           {TERRITORIES.map((t) => {
             const tState = state.territories[t.id];
+            
+            // بررسی انتخاب‌ها و هایلایت زنده اقدامات
             const isSelected = state.selectedTerritoryId === t.id || state.fortifySourceId === t.id;
             const isTarget = state.attackTargetId === t.id;
+            const isHighlighted = state.highlightedTerritoryId === t.id; // هایلایت اکشن زنده بازیکن
+            
             const owner = state.players.find((p) => p.id === tState?.ownerId);
             const color = owner ? owner.color : '#78716c';
 
@@ -89,16 +96,19 @@ export const Map: React.FC<MapProps> = ({ state, onSelectTerritory }) => {
                   y={t.labelPosition.y - 18}
                   width="36"
                   height="36"
-                  className="overflow-visible pointer-events-auto"
+                  className={`overflow-visible pointer-events-auto transition-transform duration-200 ${
+                    isHighlighted ? 'scale-125 ring-4 ring-yellow-400 rounded-full animate-pulse z-30' : ''
+                  }`}
                   onClick={(e) => {
                     e.stopPropagation();
+                    // فراخوانی تابع انتخاب قلمرو
                     onSelectTerritory(t.id);
                   }}
                 >
                   <ArmyToken
                     armies={tState?.armies || 1}
                     color={color}
-                    isSelected={isSelected}
+                    isSelected={isSelected || isHighlighted}
                     isTarget={isTarget}
                   />
                 </foreignObject>
