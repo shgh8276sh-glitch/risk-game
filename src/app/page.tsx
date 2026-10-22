@@ -30,10 +30,10 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // ثبت حمله موفق برای اعطای کارت در پایان نوبت
+  // وضعیت ثبت حداقل یک فتح در نوبت جاری برای دادن کارت
   const [hasConqueredThisTurn, setHasConqueredThisTurn] = useState<boolean>(false);
 
-  // تایید دوطرفه تاس برای هر حمله
+  // وضعیت‌های تاس‌ریزی تعاملی دوطرفه
   const [attackerReadyForDice, setAttackerReadyForDice] = useState<boolean>(false);
   const [defenderReadyForDice, setDefenderReadyForDice] = useState<boolean>(false);
 
@@ -159,8 +159,11 @@ export default function RiskGamePage() {
     const initial = initializeGame(
       playersList.map((p) => ({ name: p.name, color: p.color, isAI: false }))
     );
-    // طبق قانون رسمی ریسک: حداقل ۳ سرباز در شروع نوبت
-    initial.reinforcementsRemaining = Math.max(3, calculateReinforcements(initial, initial.players[0].id));
+    // محاسبه دقیق سربازهای اولیه نوبت طبق قانون ریسک (حداقل ۳ تا)
+    const activeP = initial.players[0];
+    const myTerritoriesCount = Object.values(initial.territories).filter(t => t.ownerId === activeP.id).length;
+    initial.reinforcementsRemaining = Math.max(3, Math.floor(myTerritoriesCount / 3));
+
     socket.emit('start_game', { roomCode: currentRoomCode, initialState: initial });
   };
 
@@ -248,7 +251,8 @@ export default function RiskGamePage() {
 
   const localPlayer = gameState.players.find((p) => p.name === username) || gameState.players[0];
   const activePlayer = gameState.players[gameState.activePlayerIndex];
-  // کنترل سخت‌گیرانه نوبت: فقط زمانی که نام کاربری ما با نام بازیکن فعال یکسان باشد اجازه اقدام داریم
+  
+  // بررسی دقیق نوبت: آیا این سیستم، بازیکنِ نوبت جاری است؟
   const isMyTurn = activePlayer.name === username;
 
   const updateStateAndSync = (newState: GameState) => {
@@ -256,7 +260,7 @@ export default function RiskGamePage() {
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
   };
 
-  // قابلیت Undo (بازگشت آخرین سرباز گذاشته شده در فاز تقویت)
+  // قابلیت Undo برای بازگرداندن سرباز گذاشته شده
   const handleUndo = () => {
     if (!isMyTurn || gameState.phase !== 'reinforce') return;
     if (!gameState.reinforcementHistory || gameState.reinforcementHistory.length === 0) return;
@@ -280,9 +284,9 @@ export default function RiskGamePage() {
     updateStateAndSync(newState);
   };
 
-  // کلیک روی نقشه (کاملاً غیرفعال در خارج از نوبت کاربر)
+  // کلیک روی نقشه (قفل کامل اگر نوبت ما نباشد)
   const handleTerritoryClick = (id: string) => {
-    if (!isMyTurn) return; // قفل شدن سیستم در خارج از نوبت
+    if (!isMyTurn) return; // قفل شدن سیستم خارج از نوبت
     const territory = gameState.territories[id];
     let updatedState = { ...gameState };
 
@@ -316,7 +320,7 @@ export default function RiskGamePage() {
     }
   };
 
-  // اجرای حمله دوطرفه تعاملی و ثبت فتح قلمرو برای اعطای کارت
+  // اجرای حمله دوطرفه و ثبت فتح برای گرفتن کارت
   const handleExecuteCombat = () => {
     if (!gameState.selectedTerritoryId || !gameState.attackTargetId) return;
     const attacker = gameState.territories[gameState.selectedTerritoryId];
@@ -333,10 +337,10 @@ export default function RiskGamePage() {
       newTerritories[gameState.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - 1 };
       newTerritories[gameState.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: 1 };
       conquered = true;
-      setHasConqueredThisTurn(true); // ثبت فتح حداقل یک منطقه در این نوبت
+      setHasConqueredThisTurn(true); // ثبت فتح منطقه برای دریافت کارت در پایان نوبت
     } else {
       newTerritories[gameState.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
-      newTerritories[gameState.attackTargetId] = { id: defender.id, ownerId: defender.ownerId, armies: newDefenderArmies };
+      newTerritories[gameState.attackTargetId] = { ...defender, armies: newDefenderArmies };
     }
 
     const updatedState: GameState = {
@@ -355,7 +359,7 @@ export default function RiskGamePage() {
     setShowDiceModal(true);
   };
 
-  // مبادله کارت‌ها فقط در مرحله اول نوبت (قبل از اتمام گذاشتن سربازها)
+  // استفاده و سوزاندن کارت‌ها فقط در مرحله اول نوبت
   const handleTradeCards = (selectedCards: Card[], bonusArmies: number) => {
     if (!isMyTurn || gameState.phase !== 'reinforce') return;
 
@@ -376,7 +380,7 @@ export default function RiskGamePage() {
     setShowCardModal(false);
   };
 
-  // مدیریت تغییر مراحل ۳‌گانه نوبت و اعطای کارت در صورت فتح منطقه
+  // تغییر فازهای ۳‌گانه و اعطای ۱ کارت در پایان نوبت در صورت فتح موفق
   const nextPhaseOrTurn = () => {
     if (!isMyTurn) return;
     let updatedState = { ...gameState };
@@ -387,7 +391,7 @@ export default function RiskGamePage() {
     } else if (gameState.phase === 'attack') {
       updatedState.phase = 'fortify';
     } else {
-      // اعطای ۱ کارت جدید در پایان نوبت در صورت داشتن حداقل یک حمله موفق
+      // اعطای ۱ کارت جدید به بازیکن فعال اگر حداقل یک فتح داشته است
       let updatedPlayers = [...gameState.players];
       if (hasConqueredThisTurn) {
         const deck = gameState.cardDeck || [];
@@ -405,11 +409,11 @@ export default function RiskGamePage() {
       }
 
       const nextIndex = (gameState.activePlayerIndex + 1) % gameState.players.length;
-      const nextPlayerId = gameState.players[nextIndex].id;
+      const nextPlayer = gameState.players[nextIndex];
 
-      // محاسبه دقیق سربازهای اولیه طبق قانون رسمی (حداقل ۳ تا)
-      const baseReinforcements = calculateReinforcements(gameState, nextPlayerId);
-      const newReinforcements = Math.max(3, baseReinforcements);
+      // محاسبه تعداد دقیق سربازهای اولیه نوبت بعدی (حداقل ۳ تا)
+      const nextTerritoriesCount = Object.values(gameState.territories).filter(t => t.ownerId === nextPlayer.id).length;
+      const newReinforcements = Math.max(3, Math.floor(nextTerritoriesCount / 3));
 
       updatedState = {
         ...updatedState,
@@ -424,7 +428,7 @@ export default function RiskGamePage() {
         reinforcementHistory: [],
       };
 
-      setHasConqueredThisTurn(false); // ریست کردن وضعیت فتح برای نوبت بعدی
+      setHasConqueredThisTurn(false); // ریست کردن برای نوبت بعد
     }
 
     updateStateAndSync(updatedState);
@@ -437,7 +441,7 @@ export default function RiskGamePage() {
     <main className="flex min-h-screen flex-col items-center p-6 bg-[#1a120b] text-amber-100 relative" dir="rtl">
       <button onClick={() => setShowHelpModal(true)} className="fixed top-4 right-4 z-40 bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer">❓ راهنما</button>
 
-      {/* هدر نمایش شفاف نوبت و ۳ مرحله بازی به سبک نسخه آفلاین */}
+      {/* هدر نمایش نوبت و ۳ مرحله بازی به سبک نسخه آفلاین */}
       <header className="w-full max-w-5xl flex justify-between items-center mb-6 bg-[#2b1e16] p-4 rounded-xl border border-[#8c653d] shadow-md">
         <div>
           <h2 className="text-xl font-bold" style={{ color: activePlayer.color }}>
@@ -448,12 +452,12 @@ export default function RiskGamePage() {
           </p>
           <p className="text-xs text-emerald-400 font-bold mt-1">
             مرحله نوبت: {gameState.phase === 'reinforce' ? '۱. تقویت نیروها (گذاشتن سرباز)' : gameState.phase === 'attack' ? '۲. فاز حمله' : '۳. جابجایی استراتژیک'}
-            {gameState.phase === 'reinforce' && ` | سرباز باقی‌مانده جهت جایگذاری: ${gameState.reinforcementsRemaining}`}
+            {gameState.phase === 'reinforce' && ` | سرباز باقی‌مانده: ${gameState.reinforcementsRemaining}`}
           </p>
         </div>
 
         <div className="flex gap-2 items-center">
-          {/* دکمه بازگشت (Undo) برای سربازان فقط در مرحله اول و در نوبت خود کاربر فعال است */}
+          {/* دکمه Undo فقط در مرحله ۱ و نوبت خود کاربر فعال است */}
           {isMyTurn && gameState.phase === 'reinforce' && (
             <button onClick={handleUndo} className="px-3 py-2 bg-yellow-700 hover:bg-yellow-600 text-xs font-bold rounded-lg cursor-pointer text-white">
               ↩️ بازگشت (Undo)
@@ -463,8 +467,9 @@ export default function RiskGamePage() {
           {/* استفاده از کارت‌ها فقط در مرحله اول نوبت */}
           <button 
             onClick={() => setShowCardModal(true)} 
-            className={`px-3 py-2 text-xs font-bold rounded-lg cursor-pointer ${
-              isMyTurn && gameState.phase === 'reinforce' ? 'bg-amber-800 hover:bg-amber-700' : 'bg-gray-700 opacity-60'
+            disabled={!isMyTurn || gameState.phase !== 'reinforce'}
+            className={`px-3 py-2 text-xs font-bold rounded-lg ${
+              isMyTurn && gameState.phase === 'reinforce' ? 'bg-amber-800 hover:bg-amber-700 cursor-pointer' : 'bg-gray-700 opacity-50 cursor-not-allowed'
             }`}
           >
             🃏 کارت‌های من ({localPlayer.cards.length})
@@ -486,7 +491,7 @@ export default function RiskGamePage() {
       {/* پنل تاس‌ریزی دوطرفه برای هر حمله */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg animate-pulse">
-          <span className="text-xs font-bold text-red-200">⚔️ درخواست حمله فعال! هر دو بازیکن مهاجم و مدافع باید دکمه تاس را بزنند.</span>
+          <span className="text-xs font-bold text-red-200">⚔️ درخواست حمله فعال! مهاجم و مدافع هر دو باید دکمه تاس را بزنند.</span>
           <div className="flex gap-2">
             {isAttacker && (
               <button
