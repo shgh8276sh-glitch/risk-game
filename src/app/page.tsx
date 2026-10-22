@@ -31,11 +31,22 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
+  // گرفتن یا ساخت شناسه یکتای سیستم برای جلوگیری از تکرار کاربر با رفرش
+  const getOrCreatePlayerId = () => {
+    let pid = localStorage.getItem('risk_player_id');
+    if (!pid) {
+      pid = 'pid_' + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem('risk_player_id', pid);
+    }
+    return pid;
+  };
+
   useEffect(() => {
     if (!socket.connected) {
       socket.connect();
     }
 
+    const playerId = getOrCreatePlayerId();
     const savedUsername = localStorage.getItem('risk_username');
     const savedRoomCode = localStorage.getItem('risk_roomCode');
 
@@ -43,21 +54,28 @@ export default function RiskGamePage() {
 
     if (savedRoomCode && savedUsername) {
       setCurrentRoomCode(savedRoomCode);
-      socket.emit('join_room', { username: savedUsername, roomCode: savedRoomCode }, (response: any) => {
+      socket.emit('join_room', { username: savedUsername, playerId, roomCode: savedRoomCode }, (response: any) => {
         if (response && response.success) {
           setPlayersList(response.players);
+          const me = response.players.find((p: any) => p.playerId === playerId);
+          if (me) setIsHost(me.isHost);
+
           if (response.gameState) {
             setGameState(response.gameState);
             setInLobby(false);
           }
         } else {
           localStorage.removeItem('risk_roomCode');
+          setCurrentRoomCode(null);
         }
       });
     }
 
     socket.on('room_updated', ({ players }) => {
       setPlayersList(players);
+      const pid = getOrCreatePlayerId();
+      const me = players.find((p: any) => p.playerId === pid);
+      if (me) setIsHost(me.isHost);
     });
 
     socket.on('game_started', (initialState) => {
@@ -86,8 +104,10 @@ export default function RiskGamePage() {
       return;
     }
 
+    const playerId = getOrCreatePlayerId();
     setIsLoading(true);
-    socket.emit('create_room', { username, maxPlayers: 5, adminSecret: adminSecretInput }, (response: any) => {
+    
+    socket.emit('create_room', { username, playerId, maxPlayers: 5, adminSecret: adminSecretInput }, (response: any) => {
       setIsLoading(false);
       if (response && response.success) {
         setCurrentRoomCode(response.roomCode);
@@ -108,13 +128,18 @@ export default function RiskGamePage() {
       return;
     }
 
+    const playerId = getOrCreatePlayerId();
     setIsLoading(true);
-    socket.emit('join_room', { username, roomCode: roomCodeInput.trim() }, (response: any) => {
+
+    socket.emit('join_room', { username, playerId, roomCode: roomCodeInput.trim() }, (response: any) => {
       setIsLoading(false);
       if (response && response.success) {
         setCurrentRoomCode(response.roomCode);
         setPlayersList(response.players);
-        setIsHost(false);
+        
+        const me = response.players.find((p: any) => p.playerId === playerId);
+        if (me) setIsHost(me.isHost);
+
         localStorage.setItem('risk_username', username);
         localStorage.setItem('risk_roomCode', response.roomCode);
         if (response.gameState) {
@@ -194,7 +219,7 @@ export default function RiskGamePage() {
             {playersList.map((p, idx) => (
               <div key={idx} className="flex justify-between items-center text-xs bg-[#2b1e16] p-2 rounded-lg">
                 <span style={{ color: p.color }} className="font-bold">{p.name}</span>
-                {p.isHost && <span className="bg-amber-600 text-white px-2 py-0.5 rounded text-[10px]">سازنده</span>}
+                {p.isHost && <span className="bg-amber-600 text-white px-2 py-0.5 rounded text-[10px]">سازنده (Host)</span>}
               </div>
             ))}
           </div>

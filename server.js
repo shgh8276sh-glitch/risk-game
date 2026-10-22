@@ -16,7 +16,6 @@ const io = new Server(server, {
   pingInterval: 25000,
 });
 
-// ذخیره روم‌های فعال
 const rooms = {};
 const ADMIN_SECRET = 'shahab123';
 
@@ -27,27 +26,26 @@ function generateRoomCode() {
 io.on('connection', (socket) => {
   console.log('کاربر متصل شد:', socket.id);
 
-  // ۱. ساخت روم جدید
-  socket.on('create_room', ({ username, maxPlayers, adminSecret }, callback) => {
+  // ۱. ساخت روم
+  socket.on('create_room', ({ username, playerId, maxPlayers, adminSecret }, callback) => {
     if (adminSecret !== ADMIN_SECRET) {
       return callback({ success: false, message: 'رمز عبور ادمین اشتباه است!' });
     }
 
     const roomCode = generateRoomCode();
     rooms[roomCode] = {
-      hostId: socket.id,
+      hostPlayerId: playerId,
       maxPlayers: maxPlayers || 5,
-      players: [{ id: socket.id, name: username, color: '#dc2626', isHost: true }],
+      players: [{ socketId: socket.id, playerId, name: username, color: '#dc2626', isHost: true }],
       gameState: null,
     };
 
     socket.join(roomCode);
-    console.log(`روم ساخته شد: ${roomCode} توسط ${username}`);
     callback({ success: true, roomCode, players: rooms[roomCode].players });
   });
 
-  // ۲. پیوستن بازیکن جدید به روم (و مدیریت رفرش صفحه)
-  socket.on('join_room', ({ username, roomCode }, callback) => {
+  // ۲. پیوستن به روم (هندل کردن دقیق رفرش بدون ساخت کاربر تکراری)
+  socket.on('join_room', ({ username, playerId, roomCode }, callback) => {
     const room = rooms[roomCode];
 
     if (!room) {
@@ -56,44 +54,50 @@ io.on('connection', (socket) => {
 
     socket.join(roomCode);
 
-    // بررسی اینکه آیا بازیکن قبلاً با این نام در روم بوده یا نه (برای هندل کردن رفرش)
-    let existingPlayer = room.players.find(p => p.name === username);
-    
+    // جستجو بر اساس شناسه ثابت یا نام کاربر
+    let existingPlayer = room.players.find(p => p.playerId === playerId || p.name === username);
+
     if (existingPlayer) {
-      // آپدیت کردن اسلات سوکت ایدی جدید بعد از رفرش
-      existingPlayer.id = socket.id;
+      // به‌روزرسانی socket.id جدید برای کاربر قبلی (جلوگیری از ساخت بازیکن جدید)
+      existingPlayer.socketId = socket.id;
+      existingPlayer.playerId = playerId;
+      if (room.hostPlayerId === playerId) {
+        existingPlayer.isHost = true;
+      }
     } else {
-      if (room.players.length >= room.maxPlayers && room.gameState) {
-        return callback({ success: false, message: 'بازی شروع شده و ظرفیت تکمیل است!' });
+      if (room.players.length >= room.maxPlayers) {
+        return callback({ success: false, message: 'ظرفیت روم تکمیل است!' });
       }
 
       const colors = ['#dc2626', '#2563eb', '#16a34a', '#eab308', '#9333ea'];
+      const isHost = room.players.length === 0;
+      
       const newPlayer = {
-        id: socket.id,
+        socketId: socket.id,
+        playerId,
         name: username,
         color: colors[room.players.length % colors.length],
-        isHost: room.players.length === 0,
+        isHost,
       };
+
+      if (isHost) room.hostPlayerId = playerId;
       room.players.push(newPlayer);
     }
 
     callback({ success: true, roomCode, players: room.players, gameState: room.gameState });
-    
-    // ارسال آپدیت به تمام اعضای روم
     io.to(roomCode).emit('room_updated', { players: room.players });
   });
 
-  // ۳. شروع بازی توسط میزبان
+  // ۳. شروع بازی
   socket.on('start_game', ({ roomCode, initialState }) => {
     const room = rooms[roomCode];
     if (room) {
       room.gameState = initialState;
       io.to(roomCode).emit('game_started', initialState);
-      console.log(`بازی در روم ${roomCode} شروع شد.`);
     }
   });
 
-  // ۴. همگام‌سازی وضعیت بازی و اکشن‌ها
+  // ۴. همگام‌سازی وضعیت
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (room) {
@@ -103,11 +107,11 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('کاربر قطع شد:', socket.id);
+    console.log('قطع اتصال:', socket.id);
   });
 });
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور پیشرفته بازی روی پورت ${PORT} روشن شد.`);
+  console.log(`سرور اصلاح شده روی پورت ${PORT} اجرا شد.`);
 });
