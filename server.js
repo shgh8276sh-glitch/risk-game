@@ -31,6 +31,8 @@ io.on('connection', (socket) => {
       maxPlayers: maxPlayers || 5,
       players: [{ socketId: socket.id, playerId, name: username, color: '#dc2626', isHost: true }],
       gameState: null,
+      attackerReady: false,
+      defenderReady: false,
     };
     socket.join(roomCode);
     callback({ success: true, roomCode, players: rooms[roomCode].players });
@@ -50,7 +52,7 @@ io.on('connection', (socket) => {
     } else {
       if (room.players.length >= room.maxPlayers) return callback({ success: false, message: 'ظرفیت تکمیل است!' });
       const colors = ['#dc2626', '#2563eb', '#16a34a', '#eab308', '#9333ea'];
-      const isHost = room.players.length === 0;
+      const isHost = room.players.length === 0 || room.hostPlayerId === playerId;
       room.players.push({
         socketId: socket.id,
         playerId,
@@ -73,21 +75,30 @@ io.on('connection', (socket) => {
     }
   });
 
-  // قفل امنیتی سرور: بررسی اینکه فرستنده درخواست حتماً بازیکنِ نوبت جاری باشد
+  socket.on('toggle_dice_ready', ({ roomCode, isAttacker, isReady }) => {
+    const room = rooms[roomCode];
+    if (!room) return;
+
+    if (isAttacker) room.attackerReady = isReady;
+    else room.defenderReady = isReady;
+
+    io.in(roomCode).emit('dice_ready_updated', {
+      attackerReady: room.attackerReady,
+      defenderReady: room.defenderReady,
+    });
+  });
+
   socket.on('update_game_state', ({ roomCode, newState, senderUsername }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
 
     const activePlayer = room.gameState.players[room.gameState.activePlayerIndex];
 
-    // اگر کسی که درخواست تغییر داده، بازیکن نوبت فعلی نباشد، سرور آن را بلافاصله مسدود می‌کند
     if (!activePlayer || activePlayer.name !== senderUsername) {
-      console.log(`تلاش غیرمجاز توسط ${senderUsername} در نوبت ${activePlayer?.name} مسدود شد.`);
       return;
     }
 
     room.gameState = newState;
-    // ارسال دقیق وضعیت جدید به تمام بازیکنان حاضر در روم تا نقشه برای همه یکسان آپدیت شود
     io.in(roomCode).emit('game_state_updated', newState);
   });
 
@@ -96,5 +107,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور امنیتی روی پورت ${PORT} روشن شد.`);
+  console.log(`سرور آماده نبرد آنلاین است.`);
 });

@@ -6,7 +6,6 @@ import { DiceModal } from '@/components/DiceModal';
 import { CardModal } from '@/components/CardModal';
 import { HelpModal } from '@/components/HelpModal';
 import { initializeGame } from '@/game/engine/setup';
-import { calculateReinforcements } from '@/game/engine/reinforcements';
 import { resolveCombat } from '@/game/engine/combat';
 import { GameState, Card } from '@/game/engine/state';
 import { TERRITORIES } from '@/game/data/territories';
@@ -30,8 +29,9 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const [attackerReadyForDice, setAttackerReadyForDice] = useState<boolean>(false);
-  const [defenderReadyForDice, setDefenderReadyForDice] = useState<boolean>(false);
+  // آمادگی تاس که از طریق سوکت هماهنگ می‌شود
+  const [attackerReady, setAttackerReady] = useState<boolean>(false);
+  const [defenderReady, setDefenderReady] = useState<boolean>(false);
 
   const getOrCreatePlayerId = () => {
     let pid = localStorage.getItem('risk_player_id');
@@ -56,7 +56,7 @@ export default function RiskGamePage() {
       socket.emit('join_room', { username: savedUsername, playerId, roomCode: savedRoomCode }, (response: any) => {
         if (response && response.success) {
           setPlayersList(response.players);
-          const me = response.players.find((p: any) => p.playerId === playerId);
+          const me = response.players.find((p: any) => p.playerId === playerId || p.name === savedUsername);
           if (me) setIsHost(me.isHost);
           if (response.gameState) {
             setGameState(response.gameState);
@@ -72,7 +72,8 @@ export default function RiskGamePage() {
     socket.on('room_updated', ({ players }) => {
       setPlayersList(players);
       const pid = getOrCreatePlayerId();
-      const me = players.find((p: any) => p.playerId === pid);
+      const savedUser = localStorage.getItem('risk_username');
+      const me = players.find((p: any) => p.playerId === pid || p.name === savedUser);
       if (me) setIsHost(me.isHost);
     });
 
@@ -88,10 +89,17 @@ export default function RiskGamePage() {
       }
     });
 
+    // دریافت آمادگی تاس دوطرفه
+    socket.on('dice_ready_updated', ({ attackerReady: aReady, defenderReady: dReady }) => {
+      setAttackerReady(aReady);
+      setDefenderReady(dReady);
+    });
+
     return () => {
       socket.off('room_updated');
       socket.off('game_started');
       socket.off('game_state_updated');
+      socket.off('dice_ready_updated');
     };
   }, []);
 
@@ -130,7 +138,7 @@ export default function RiskGamePage() {
       if (response && response.success) {
         setCurrentRoomCode(response.roomCode);
         setPlayersList(response.players);
-        const me = response.players.find((p: any) => p.playerId === playerId);
+        const me = response.players.find((p: any) => p.playerId === playerId || p.name === username);
         if (me) setIsHost(me.isHost);
         localStorage.setItem('risk_username', username);
         localStorage.setItem('risk_roomCode', response.roomCode);
@@ -248,7 +256,6 @@ export default function RiskGamePage() {
   const activePlayer = gameState.players[gameState.activePlayerIndex];
   const isMyTurn = activePlayer.name === username;
 
-  // تشخیص دقیق مهاجم و مدافع بر اساس نام کاربری مالکان سرزمین‌های در حال نبرد
   const attackerTerritory = gameState.selectedTerritoryId ? gameState.territories[gameState.selectedTerritoryId] : null;
   const defenderTerritory = gameState.attackTargetId ? gameState.territories[gameState.attackTargetId] : null;
 
@@ -263,27 +270,51 @@ export default function RiskGamePage() {
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState, senderUsername: username });
   };
 
+  // قابلیت لغو و Undo در تمامی ۳ مرحله
   const handleUndo = () => {
-    if (!isMyTurn || gameState.phase !== 'reinforce') return;
-    if (!gameState.reinforcementHistory || gameState.reinforcementHistory.length === 0) return;
+    if (!isMyTurn) return;
 
-    const history = [...gameState.reinforcementHistory];
-    const lastAction = history.pop();
-    if (!lastAction) return;
+    if (gameState.phase === 'reinforce') {
+      if (!gameState.reinforcementHistory || gameState.reinforcementHistory.length === 0) return;
+      const history = [...gameState.reinforcementHistory];
+      const lastAction = history.pop();
+      if (!lastAction) return;
 
-    const territory = gameState.territories[lastAction.territoryId];
-    const updatedTerritories = {
-      ...gameState.territories,
-      [lastAction.territoryId]: { ...territory, armies: territory.armies - lastAction.armiesAdded }
-    };
+      const territory = gameState.territories[lastAction.territoryId];
+      const updatedTerritories = {
+        ...gameState.territories,
+        [lastAction.territoryId]: { ...territory, armies: territory.armies - lastAction.armiesAdded }
+      };
 
-    const newState: GameState = {
-      ...gameState,
-      territories: updatedTerritories,
-      reinforcementsRemaining: gameState.reinforcementsRemaining + lastAction.armiesAdded,
-      reinforcementHistory: history,
-    };
-    updateStateAndSync(newState);
+      const newState: GameState = {
+        ...gameState,
+        territories: updatedTerritories,
+        reinforcementsRemaining: gameState.reinforcementsRemaining + lastAction.armiesAdded,
+        reinforcementHistory: history,
+      };
+      updateStateAndSync(newState);
+    } else if (gameState.phase === 'attack') {
+      // لغو حمله جاری
+      setAttackerReady(false);
+      setDefenderReady(false);
+      socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
+      socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
+
+      const newState: GameState = {
+        ...gameState,
+        selectedTerritoryId: null,
+        attackTargetId: null,
+      };
+      updateStateAndSync(newState);
+    } else if (gameState.phase === 'fortify') {
+      // لغو انتخاب مبدأ/مقصد پخش نیرو
+      const newState: GameState = {
+        ...gameState,
+        selectedTerritoryId: null,
+        fortifySourceId: null,
+      };
+      updateStateAndSync(newState);
+    }
   };
 
   const handleTerritoryClick = (id: string) => {
@@ -309,14 +340,34 @@ export default function RiskGamePage() {
         }
       } else if (gameState.selectedTerritoryId === id) {
         updatedState = { ...gameState, selectedTerritoryId: null, attackTargetId: null };
+        setAttackerReady(false);
+        setDefenderReady(false);
         updateStateAndSync(updatedState);
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
           updatedState = { ...gameState, attackTargetId: id };
+          setAttackerReady(false);
+          setDefenderReady(false);
           updateStateAndSync(updatedState);
         }
       }
+    }
+  };
+
+  const handleToggleDiceReady = (roleIsAttacker: boolean) => {
+    const nextVal = roleIsAttacker ? !attackerReady : !defenderReady;
+    if (roleIsAttacker) setAttackerReady(nextVal);
+    else setDefenderReady(nextVal);
+
+    socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: roleIsAttacker, isReady: nextVal });
+
+    // اگر هر دو آماده شدند نبرد فوراً اجرا می‌شود
+    const currentAttackerReady = roleIsAttacker ? nextVal : attackerReady;
+    const currentDefenderReady = !roleIsAttacker ? nextVal : defenderReady;
+
+    if (currentAttackerReady && currentDefenderReady) {
+      handleExecuteCombat();
     }
   };
 
@@ -348,8 +399,11 @@ export default function RiskGamePage() {
       },
     };
 
-    setAttackerReadyForDice(false);
-    setDefenderReadyForDice(false);
+    setAttackerReady(false);
+    setDefenderReady(false);
+    socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
+    socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
+
     updateStateAndSync(updatedState);
     setShowDiceModal(true);
   };
@@ -401,6 +455,8 @@ export default function RiskGamePage() {
       };
     }
 
+    setAttackerReady(false);
+    setDefenderReady(false);
     updateStateAndSync(updatedState);
   };
 
@@ -423,9 +479,10 @@ export default function RiskGamePage() {
         </div>
 
         <div className="flex gap-2 items-center">
-          {isMyTurn && gameState.phase === 'reinforce' && (
+          {/* دکمه لغو / بازگشت هوشمند در هر ۳ مرحله */}
+          {isMyTurn && (
             <button onClick={handleUndo} className="px-3 py-2 bg-yellow-700 hover:bg-yellow-600 text-xs font-bold rounded-lg cursor-pointer text-white">
-              ↩️ بازگشت (Undo)
+              ↩️ {gameState.phase === 'reinforce' ? 'بازگشت (Undo)' : gameState.phase === 'attack' ? 'لغو انتخاب حمله' : 'لغو جابجایی'}
             </button>
           )}
 
@@ -451,33 +508,25 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه */}
+      {/* بنر نبرد تاس دوطرفه با آمادگی آنلاین زنده */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال! هر دو بازیکن مهاجم و مدافع باید دکمه تاس خود را بزنند.</span>
           <div className="flex gap-2">
             {isAttacker && (
               <button
-                onClick={() => {
-                  const newReady = !attackerReadyForDice;
-                  setAttackerReadyForDice(newReady);
-                  if (newReady && defenderReadyForDice) handleExecuteCombat();
-                }}
-                className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer ${attackerReadyForDice ? 'bg-green-600 text-white' : 'bg-red-600 text-white hover:bg-red-500'}`}
+                onClick={() => handleToggleDiceReady(true)}
+                className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer ${attackerReady ? 'bg-green-600 text-white' : 'bg-red-600 text-white hover:bg-red-500'}`}
               >
-                {attackerReadyForDice ? '✅ تاس مهاجم آماده' : '🎲 پرتاب تاس مهاجم'}
+                {attackerReady ? '✅ تاس مهاجم آماده (تایید شد)' : '🎲 پرتاب تاس مهاجم'}
               </button>
             )}
             {isDefender && (
               <button
-                onClick={() => {
-                  const newReady = !defenderReadyForDice;
-                  setDefenderReadyForDice(newReady);
-                  if (newReady && attackerReadyForDice) handleExecuteCombat();
-                }}
-                className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer ${defenderReadyForDice ? 'bg-green-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
+                onClick={() => handleToggleDiceReady(false)}
+                className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer ${defenderReady ? 'bg-green-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
               >
-                {defenderReadyForDice ? '✅ تاس مدافع آماده' : '🛡️ پرتاب تاس مدافع'}
+                {defenderReady ? '✅ تاس مدافع آماده (تایید شد)' : '🛡️ پرتاب تاس مدافع'}
               </button>
             )}
             {!isAttacker && !isDefender && (
