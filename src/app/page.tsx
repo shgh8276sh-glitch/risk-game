@@ -30,7 +30,6 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // وضعیت‌های مربوط به دکمه تایید تاس مدافع و مهاجم
   const [attackerReadyForDice, setAttackerReadyForDice] = useState<boolean>(false);
   const [defenderReadyForDice, setDefenderReadyForDice] = useState<boolean>(false);
 
@@ -44,7 +43,9 @@ export default function RiskGamePage() {
   };
 
   useEffect(() => {
-    if (!socket.connected) socket.connect();
+    if (!socket.connected) {
+      socket.connect();
+    }
 
     const playerId = getOrCreatePlayerId();
     const savedUsername = localStorage.getItem('risk_username');
@@ -70,6 +71,7 @@ export default function RiskGamePage() {
       });
     }
 
+    // دریافت آپدیت لحظه‌ای لیست بازیکنان
     socket.on('room_updated', ({ players }) => {
       setPlayersList(players);
       const pid = getOrCreatePlayerId();
@@ -145,8 +147,18 @@ export default function RiskGamePage() {
     });
   };
 
+  const handleRefreshPlayers = () => {
+    if (currentRoomCode) {
+      socket.emit('request_room_players', { roomCode: currentRoomCode });
+    }
+  };
+
   const handleStartOnlineGame = () => {
+    if (!socket.connected) {
+      socket.connect();
+    }
     if (playersList.length < 1) return;
+
     const initial = initializeGame(
       playersList.map((p) => ({ name: p.name, color: p.color, isAI: false }))
     );
@@ -201,8 +213,15 @@ export default function RiskGamePage() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-[#1a120b] text-amber-100" dir="rtl">
         <div className="text-center space-y-6 max-w-md bg-[#2b1e16] p-8 rounded-3xl border-2 border-amber-600 w-full shadow-2xl">
-          <h2 className="text-2xl font-bold text-amber-400">اتاق انتظار آنلاین</h2>
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-bold text-amber-400">اتاق انتظار آنلاین</h2>
+            <button onClick={handleRefreshPlayers} className="text-xs bg-amber-800 hover:bg-amber-700 text-amber-200 px-3 py-1 rounded-lg cursor-pointer">
+              🔄 بروزرسانی لیست
+            </button>
+          </div>
+
           <p className="text-3xl font-mono font-extrabold text-emerald-400 tracking-widest">{currentRoomCode}</p>
+          
           <div className="space-y-2 text-right bg-[#1a120b] p-4 rounded-xl border border-[#8c653d]">
             <p className="text-xs font-bold text-amber-400 mb-2">بازیکنان حاضر ({playersList.length} نفر):</p>
             {playersList.map((p, idx) => (
@@ -212,13 +231,15 @@ export default function RiskGamePage() {
               </div>
             ))}
           </div>
+
           {isHost ? (
             <button onClick={handleStartOnlineGame} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 font-bold text-sm rounded-xl text-white cursor-pointer shadow-lg">
-              🚀 شروع بازی آنلاین برای همه
+              🚀 شروع بازی آنلاین برای همه ({playersList.length} نفر)
             </button>
           ) : (
             <p className="text-xs text-amber-400 animate-pulse py-3">منتظر بمانید تا سازنده روم بازی را شروع کند...</p>
           )}
+
           <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="text-[11px] text-red-400 hover:underline cursor-pointer pt-2">خروج از روم</button>
         </div>
       </main>
@@ -236,7 +257,6 @@ export default function RiskGamePage() {
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
   };
 
-  // قابلیت Undo (بازگشت آخرین حرکت تقویتی)
   const handleUndo = () => {
     if (!isMyTurn || gameState.phase !== 'reinforce') return;
     if (!gameState.reinforcementHistory || gameState.reinforcementHistory.length === 0) return;
@@ -260,7 +280,6 @@ export default function RiskGamePage() {
     updateStateAndSync(newState);
   };
 
-  // کلیک روی مناطق با امکان هایلایت زنده برای همه
   const handleTerritoryClick = (id: string) => {
     if (!isMyTurn) return;
     const territory = gameState.territories[id];
@@ -270,7 +289,7 @@ export default function RiskGamePage() {
       if (territory.ownerId === activePlayer.id && gameState.reinforcementsRemaining > 0) {
         updatedState = {
           ...gameState,
-          highlightedTerritoryId: id, // هایلایت کردن برای نمایش به دیگران
+          highlightedTerritoryId: id,
           territories: { ...gameState.territories, [id]: { ...territory, armies: territory.armies + 1 } },
           reinforcementsRemaining: gameState.reinforcementsRemaining - 1,
           reinforcementHistory: [...(gameState.reinforcementHistory || []), { territoryId: id, armiesAdded: 1 }],
@@ -296,7 +315,6 @@ export default function RiskGamePage() {
     }
   };
 
-  // حمله دوطرفه تعاملی: هر دو بازیکن باید دکمه تاس را بزنند
   const handleExecuteCombat = () => {
     if (!gameState.selectedTerritoryId || !gameState.attackTargetId) return;
     const attacker = gameState.territories[gameState.selectedTerritoryId];
@@ -331,7 +349,6 @@ export default function RiskGamePage() {
     setShowDiceModal(true);
   };
 
-  // کارت‌ها فقط در فاز اول (تقویت) قابل استفاده هستند
   const handleTradeCards = (selectedCards: Card[], bonusArmies: number) => {
     if (gameState.phase !== 'reinforce') return;
     const updatedPlayers = gameState.players.map((p, idx) => {
@@ -351,7 +368,6 @@ export default function RiskGamePage() {
     setShowCardModal(false);
   };
 
-  // چرخش ۳ مرحله‌ای نوبت (تقویت -> حمله -> جابجایی)
   const nextPhaseOrTurn = () => {
     let updatedState = { ...gameState };
     if (gameState.phase === 'reinforce') {
@@ -386,41 +402,31 @@ export default function RiskGamePage() {
     <main className="flex min-h-screen flex-col items-center p-6 bg-[#1a120b] text-amber-100 relative" dir="rtl">
       <button onClick={() => setShowHelpModal(true)} className="fixed top-4 right-4 z-40 bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer">❓ راهنما</button>
 
-      {/* هدر نمایش ۳ مرحله نوبت و تعداد سربازهای قابل اضافه کردن */}
       <header className="w-full max-w-5xl flex justify-between items-center mb-4 bg-[#2b1e16] p-4 rounded-xl border border-[#8c653d]">
         <div>
           <h2 className="text-lg font-bold" style={{ color: activePlayer.color }}>نوبت: {activePlayer.name}</h2>
           <p className="text-xs text-amber-300">
-            مرحله فعلی: <span className="font-bold text-emerald-400">
+            مرحله: <span className="font-bold text-emerald-400">
               {gameState.phase === 'reinforce' ? '۱. تقویت نیروها' : gameState.phase === 'attack' ? '۲. حمله' : '۳. جابجایی استراتژیک'}
             </span>
-            {gameState.phase === 'reinforce' && ` | سرباز باقی‌مانده جهت جایگذاری: ${gameState.reinforcementsRemaining}`}
+            {gameState.phase === 'reinforce' && ` | سرباز باقی‌مانده: ${gameState.reinforcementsRemaining}`}
           </p>
         </div>
         <div className="flex gap-2 items-center">
           {isMyTurn && gameState.phase === 'reinforce' && (
-            <button onClick={handleUndo} className="px-3 py-2 bg-yellow-700 hover:bg-yellow-600 text-xs font-bold rounded-lg cursor-pointer text-white">
-              ↩️ بازگشت (Undo)
-            </button>
+            <button onClick={handleUndo} className="px-3 py-2 bg-yellow-700 hover:bg-yellow-600 text-xs font-bold rounded-lg cursor-pointer text-white">بازگشت (Undo)</button>
           )}
-          <button onClick={() => setShowCardModal(true)} className="px-3 py-2 bg-amber-800 hover:bg-amber-700 text-xs font-bold rounded-lg cursor-pointer">
-            🃏 کارت‌های من ({localPlayer.cards.length})
-          </button>
-          <button onClick={() => setShowMissionModal(true)} className="px-3 py-2 bg-amber-700 hover:bg-amber-600 text-xs font-bold rounded-lg cursor-pointer">
-            📜 ماموریت
-          </button>
+          <button onClick={() => setShowCardModal(true)} className="px-3 py-2 bg-amber-800 hover:bg-amber-700 text-xs font-bold rounded-lg cursor-pointer">🃏 کارت‌ها ({localPlayer.cards.length})</button>
+          <button onClick={() => setShowMissionModal(true)} className="px-3 py-2 bg-amber-700 hover:bg-amber-600 text-xs font-bold rounded-lg cursor-pointer">📜 ماموریت</button>
           {isMyTurn && (
-            <button onClick={nextPhaseOrTurn} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-xs font-bold rounded-lg text-white cursor-pointer">
-              مرحله بعد ➔
-            </button>
+            <button onClick={nextPhaseOrTurn} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-xs font-bold rounded-lg text-white cursor-pointer">مرحله بعد ➔</button>
           )}
         </div>
       </header>
 
-      {/* نوار پرتاب تاس مشترک و تعاملی برای مهاجم و مدافع */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
-          <span className="text-xs font-bold text-red-200">⚔️ نبرد در جریان است! مهاجم و مدافع باید دکمه تاس را بزنند.</span>
+          <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال! مهاجم و مدافع باید تاس بیندازند.</span>
           <div className="flex gap-2">
             {isAttacker && (
               <button
@@ -442,7 +448,6 @@ export default function RiskGamePage() {
         </div>
       )}
 
-      {/* نقشه بازی با قابلیت هایلایت زنده حرکات */}
       <Map state={gameState} onSelectTerritory={handleTerritoryClick} />
 
       {showHelpModal && <HelpModal onClose={() => setShowHelpModal(false)} />}
@@ -458,21 +463,11 @@ export default function RiskGamePage() {
       )}
 
       {showCardModal && (
-        <CardModal 
-          cards={localPlayer.cards} 
-          isReinforcePhase={gameState.phase === 'reinforce' && isMyTurn} 
-          onTradeCards={handleTradeCards} 
-          onClose={() => setShowCardModal(false)} 
-        />
+        <CardModal cards={localPlayer.cards} isReinforcePhase={gameState.phase === 'reinforce' && isMyTurn} onTradeCards={handleTradeCards} onClose={() => setShowCardModal(false)} />
       )}
 
       {showDiceModal && gameState.diceResult && (
-        <DiceModal 
-          attackerRolls={gameState.diceResult.attacker} 
-          defenderRolls={gameState.diceResult.defender} 
-          message={gameState.diceResult.message} 
-          onClose={() => { setShowDiceModal(false); setGameState({ ...gameState, selectedTerritoryId: null, attackTargetId: null, highlightedTerritoryId: null }); }} 
-        />
+        <DiceModal attackerRolls={gameState.diceResult.attacker} defenderRolls={gameState.diceResult.defender} message={gameState.diceResult.message} onClose={() => { setShowDiceModal(false); setGameState({ ...gameState, selectedTerritoryId: null, attackTargetId: null, highlightedTerritoryId: null }); }} />
       )}
     </main>
   );

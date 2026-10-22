@@ -9,8 +9,8 @@ app.use(cors());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
-  pingTimeout: 120000,
-  pingInterval: 10000,
+  pingTimeout: 180000,
+  pingInterval: 25000,
 });
 
 const rooms = {};
@@ -21,10 +21,14 @@ function generateRoomCode() {
 }
 
 io.on('connection', (socket) => {
+  console.log('کاربر متصل شد:', socket.id);
+
+  // ۱. ساخت روم جدید
   socket.on('create_room', ({ username, playerId, maxPlayers, adminSecret }, callback) => {
     if (adminSecret !== ADMIN_SECRET) {
       return callback({ success: false, message: 'رمز عبور ادمین اشتباه است!' });
     }
+
     const roomCode = generateRoomCode();
     rooms[roomCode] = {
       hostPlayerId: playerId,
@@ -32,58 +36,79 @@ io.on('connection', (socket) => {
       players: [{ socketId: socket.id, playerId, name: username, color: '#dc2626', isHost: true }],
       gameState: null,
     };
+
     socket.join(roomCode);
+    console.log(`روم ساخته شد: ${roomCode} توسط ${username}`);
     callback({ success: true, roomCode, players: rooms[roomCode].players });
   });
 
+  // ۲. پیوستن به روم و اطلاع‌رسانی آنی به تمام اعضا
   socket.on('join_room', ({ username, playerId, roomCode }, callback) => {
     const room = rooms[roomCode];
-    if (!room) return callback({ success: false, message: 'روم یافت نشد!' });
+    if (!room) {
+      return callback({ success: false, message: 'روم مورد نظر یافت نشد!' });
+    }
 
     socket.join(roomCode);
+
     let existingPlayer = room.players.find(p => p.playerId === playerId || p.name === username);
 
     if (existingPlayer) {
       existingPlayer.socketId = socket.id;
       existingPlayer.playerId = playerId;
-      if (room.hostPlayerId === playerId) existingPlayer.isHost = true;
+      if (room.hostPlayerId === playerId) {
+        existingPlayer.isHost = true;
+      }
     } else {
-      if (room.players.length >= room.maxPlayers) return callback({ success: false, message: 'ظرفیت تکمیل است!' });
+      if (room.players.length >= room.maxPlayers) {
+        return callback({ success: false, message: 'ظرفیت روم تکمیل است!' });
+      }
+
       const colors = ['#dc2626', '#2563eb', '#16a34a', '#eab308', '#9333ea'];
       const isHost = room.players.length === 0;
-      room.players.push({
+      
+      const newPlayer = {
         socketId: socket.id,
         playerId,
         name: username,
         color: colors[room.players.length % colors.length],
         isHost,
-      });
+      };
+
       if (isHost) room.hostPlayerId = playerId;
+      room.players.push(newPlayer);
     }
 
     callback({ success: true, roomCode, players: room.players, gameState: room.gameState });
+    
+    // ارسال آنی لیست جدید به تمام افراد داخل روم (شامل ادمین و بازیکنان جدید)
     io.in(roomCode).emit('room_updated', { players: room.players });
   });
 
+  // ۳. دکمه رفرش دستی برای دریافت لیست بازیکنان
   socket.on('request_room_players', ({ roomCode }) => {
     const room = rooms[roomCode];
-    if (room) io.in(roomCode).emit('room_updated', { players: room.players });
+    if (room) {
+      io.in(roomCode).emit('room_updated', { players: room.players });
+    }
   });
 
+  // ۴. شروع بازی توسط ادمین و انتقال همگانی به صفحه بازی
   socket.on('start_game', ({ roomCode, initialState }) => {
     const room = rooms[roomCode];
     if (room) {
       room.gameState = initialState;
       io.in(roomCode).emit('game_started', initialState);
+      console.log(`بازی در روم ${roomCode} با موفقیت شروع شد.`);
     }
   });
 
-  // همگام‌سازی وضعیت بازی، فازها، تاس‌ها و هایلایت‌ها
+  // ۵. همگام‌سازی وضعیت بازی
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (room) {
       room.gameState = newState;
-      io.to(roomCode).emit('game_state_updated', newState);
+      socket.to(roomCode).emit('game_state_updated', newState);
     }
   });
 
@@ -94,5 +119,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور Risk روی پورت ${PORT} روشن شد.`);
+  console.log(`سرور پیشرفته روی پورت ${PORT} روشن شد.`);
 });
