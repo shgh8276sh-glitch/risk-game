@@ -8,12 +8,10 @@ import { ArmyToken } from './ArmyToken';
 interface MapProps {
   state: GameState;
   onSelectTerritory: (id: string) => void;
-  currentUsername?: string; // اضافه شدن نام کاربری برای تشخیص نوبت
+  currentUsername?: string;
 }
 
 export const Map: React.FC<MapProps> = ({ state, onSelectTerritory }) => {
-  const activePlayer = state.players[state.activePlayerIndex];
-
   return (
     <div className="w-full max-w-6xl flex flex-col items-center gap-4" dir="rtl">
       {/* راهنماهای بالای نقشه */}
@@ -80,12 +78,8 @@ export const Map: React.FC<MapProps> = ({ state, onSelectTerritory }) => {
         <svg viewBox="0 0 1000 600" className="w-full h-full relative z-10 pointer-events-none">
           {TERRITORIES.map((t) => {
             const tState = state.territories[t.id];
-            
-            // بررسی انتخاب‌ها و هایلایت زنده اقدامات
             const isSelected = state.selectedTerritoryId === t.id || state.fortifySourceId === t.id;
             const isTarget = state.attackTargetId === t.id;
-            const isHighlighted = state.highlightedTerritoryId === t.id; // هایلایت اکشن زنده بازیکن
-            
             const owner = state.players.find((p) => p.id === tState?.ownerId);
             const color = owner ? owner.color : '#78716c';
 
@@ -96,19 +90,16 @@ export const Map: React.FC<MapProps> = ({ state, onSelectTerritory }) => {
                   y={t.labelPosition.y - 18}
                   width="36"
                   height="36"
-                  className={`overflow-visible pointer-events-auto transition-transform duration-200 ${
-                    isHighlighted ? 'scale-125 ring-4 ring-yellow-400 rounded-full animate-pulse z-30' : ''
-                  }`}
+                  className="overflow-visible pointer-events-auto"
                   onClick={(e) => {
                     e.stopPropagation();
-                    // فراخوانی تابع انتخاب قلمرو
                     onSelectTerritory(t.id);
                   }}
                 >
                   <ArmyToken
                     armies={tState?.armies || 1}
                     color={color}
-                    isSelected={isSelected || isHighlighted}
+                    isSelected={isSelected}
                     isTarget={isTarget}
                   />
                 </foreignObject>
