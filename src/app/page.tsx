@@ -373,10 +373,9 @@ export default function RiskGamePage() {
     if (roleIsAttacker) setAttackerReady(nextAttackerReady);
     else setDefenderReady(nextDefenderReady);
 
-    socket.emit('set_dice_status', {
+    socket.emit('toggle_dice_ready', {
       roomCode: currentRoomCode,
-      attackerReady: nextAttackerReady,
-      defenderReady: nextDefenderReady,
+      role: roleIsAttacker ? 'attacker' : 'defender',
     });
   };
 

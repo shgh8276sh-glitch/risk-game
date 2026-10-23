@@ -117,54 +117,101 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت دقیق پرتاب تاس مهاجم و مدافع (شرط AND)
-  socket.on('set_dice_status', ({ roomCode, attackerReady, defenderReady }) => {
+  // Toggle-ready is role-specific and validated against the socket's player identity.
+  // The client cannot overwrite the other player's readiness with stale state.
+  socket.on('toggle_dice_ready', ({ roomCode, role }) => {
     const room = rooms[roomCode];
-    if (!room || !room.gameState) return;
+    if (!room || !room.gameState || room.gameState.phase !== 'attack') return;
 
-    room.attackerReady = attackerReady;
-    room.defenderReady = defenderReady;
+    const state = room.gameState;
+    if (!state.selectedTerritoryId || !state.attackTargetId) return;
+    if (role !== 'attacker' && role !== 'defender') return;
 
+    const attackerTerritory = state.territories[state.selectedTerritoryId];
+    const defenderTerritory = state.territories[state.attackTargetId];
+    if (!attackerTerritory || !defenderTerritory) return;
+
+    const attackerPlayer = state.players.find(p => p.id === attackerTerritory.ownerId);
+    const defenderPlayer = state.players.find(p => p.id === defenderTerritory.ownerId);
+    const socketPlayer = room.players.find(p => p.socketId === socket.id);
+    if (!attackerPlayer || !defenderPlayer || !socketPlayer) return;
+
+    // Only the actual attacker/defender may toggle their own confirmation.
+    if (role === 'attacker' && socketPlayer.name !== attackerPlayer.name) return;
+    if (role === 'defender' && socketPlayer.name !== defenderPlayer.name) return;
+
+    const readyKey = role === 'attacker' ? 'attackerReady' : 'defenderReady';
+    room[readyKey] = !room[readyKey];
+
+    io.in(roomCode).emit('dice_ready_updated', {
+      attackerReady: room.attackerReady,
+      defenderReady: room.defenderReady
+    });
+
+    // Resolve exactly once when both independently confirmed.
     if (room.attackerReady && room.defenderReady) {
-      const state = room.gameState;
-      if (state.selectedTerritoryId && state.attackTargetId) {
-        const attacker = state.territories[state.selectedTerritoryId];
-        const defender = state.territories[state.attackTargetId];
+      const combat = resolveCombat(attackerTerritory.armies, defenderTerritory.armies);
+      const newAttackerArmies = attackerTerritory.armies - combat.attackerLosses;
+      const newDefenderArmies = defenderTerritory.armies - combat.defenderLosses;
+      const newTerritories = { ...state.territories };
 
-        if (attacker && defender) {
-          const combat = resolveCombat(attacker.armies, defender.armies);
-          const newAttackerArmies = attacker.armies - combat.attackerLosses;
-          const newDefenderArmies = defender.armies - combat.defenderLosses;
-
-          let newTerritories = { ...state.territories };
-          if (newDefenderArmies <= 0) {
-            newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - 1 };
-            newTerritories[state.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: 1 };
-          } else {
-            newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
-            newTerritories[state.attackTargetId] = { id: defender.id, ownerId: defender.ownerId, armies: newDefenderArmies };
-          }
-
-          state.territories = newTerritories;
-          state.selectedTerritoryId = null;
-          state.attackTargetId = null;
-          state.diceResult = {
-            attacker: combat.attackerRolls,
-            defender: combat.defenderRolls,
-            message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد!' : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
-          };
-        }
+      if (newDefenderArmies <= 0) {
+        newTerritories[state.selectedTerritoryId] = {
+          ...attackerTerritory,
+          armies: Math.max(1, newAttackerArmies - 1)
+        };
+        newTerritories[state.attackTargetId] = {
+          id: defenderTerritory.id,
+          ownerId: attackerTerritory.ownerId,
+          armies: 1
+        };
+      } else {
+        newTerritories[state.selectedTerritoryId] = {
+          ...attackerTerritory,
+          armies: newAttackerArmies
+        };
+        newTerritories[state.attackTargetId] = {
+          ...defenderTerritory,
+          armies: newDefenderArmies
+        };
       }
+
+      room.gameState = {
+        ...state,
+        territories: newTerritories,
+        selectedTerritoryId: null,
+        attackTargetId: null,
+        diceResult: {
+          attacker: combat.attackerRolls,
+          defender: combat.defenderRolls,
+          message: newDefenderArmies <= 0
+            ? '🎉 منطقه فتح شد!'
+            : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`
+        }
+      };
 
       room.attackerReady = false;
       room.defenderReady = false;
-
-      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
-      io.in(roomCode).emit('game_state_updated', state);
-    } else {
       io.in(roomCode).emit('dice_ready_updated', {
-        attackerReady: room.attackerReady,
-        defenderReady: room.defenderReady,
+        attackerReady: false,
+        defenderReady: false
+      });
+      io.in(roomCode).emit('game_state_updated', room.gameState);
+    }
+  });
+
+  // Kept for existing cancel/reset flows. Clients may reset both flags, but
+  // cannot set either player's readiness through this legacy event.
+  socket.on('set_dice_status', ({ roomCode, attackerReady, defenderReady }) => {
+    const room = rooms[roomCode];
+    if (!room) return;
+
+    if (attackerReady === false && defenderReady === false) {
+      room.attackerReady = false;
+      room.defenderReady = false;
+      io.in(roomCode).emit('dice_ready_updated', {
+        attackerReady: false,
+        defenderReady: false
       });
     }
   });
