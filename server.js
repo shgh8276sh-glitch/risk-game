@@ -23,13 +23,10 @@ function generateRoomCode() {
 function resolveCombat(attackerArmies, defenderArmies) {
   const attackerDiceCount = Math.min(attackerArmies - 1, 3);
   const defenderDiceCount = Math.min(defenderArmies, 2);
-
   const attackerRolls = Array.from({ length: attackerDiceCount }, () => Math.floor(Math.random() * 6) + 1).sort((a, b) => b - a);
   const defenderRolls = Array.from({ length: defenderDiceCount }, () => Math.floor(Math.random() * 6) + 1).sort((a, b) => b - a);
-
   let attackerLosses = 0;
   let defenderLosses = 0;
-
   for (let i = 0; i < Math.min(attackerRolls.length, defenderRolls.length); i++) {
     if (attackerRolls[i] > defenderRolls[i]) {
       defenderLosses++;
@@ -37,7 +34,6 @@ function resolveCombat(attackerArmies, defenderArmies) {
       attackerLosses++;
     }
   }
-
   return { attackerRolls, defenderRolls, attackerLosses, defenderLosses };
 }
 
@@ -62,10 +58,8 @@ io.on('connection', (socket) => {
   socket.on('join_room', ({ username, playerId, roomCode }, callback) => {
     const room = rooms[roomCode];
     if (!room) return callback({ success: false, message: 'روم مورد نظر یافت نشد!' });
-
     socket.join(roomCode);
     let existingPlayer = room.players.find(p => p.playerId === playerId || p.name === username);
-
     if (existingPlayer) {
       existingPlayer.socketId = socket.id;
       existingPlayer.playerId = playerId;
@@ -83,24 +77,21 @@ io.on('connection', (socket) => {
       });
       if (isHost) room.hostPlayerId = playerId;
     }
-
-    // ارسال همزمان لیست بازیکنان جدید برای همه افراد داخل روم
-    io.in(roomCode).emit('room_updated', { players: room.players });
-
-    callback({ 
-      success: true, 
-      roomCode, 
-      players: room.players, 
-      gameState: room.gameState, 
-      attackerReady: room.attackerReady, 
-      defenderReady: room.defenderReady 
+    callback({
+      success: true,
+      roomCode,
+      players: room.players,
+      gameState: room.gameState,
+      attackerReady: room.attackerReady,
+      defenderReady: room.defenderReady,
     });
+    io.in(roomCode).emit('room_updated', { players: room.players });
   });
 
   socket.on('request_room_players', ({ roomCode }) => {
     const room = rooms[roomCode];
     if (room) {
-      io.in(roomCode).emit('room_updated', { players: room.players });
+      socket.emit('room_updated', { players: room.players });
     }
   });
 
@@ -115,31 +106,37 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت دقیق پرتاب تاس با ارسال لحظه‌ای وضعیت به همه اعضای اتاق
-  socket.on('set_dice_status', ({ roomCode, role, readyState }) => {
+  // === اصلاح شده: مدیریت دقیق وضعیت تاس بدون race condition ===
+  // پشتیبانی از دو حالت:
+  // 1) { isAttacker, ready } → فقط یک طرف را آپدیت می‌کند (برای toggle)
+  // 2) { attackerReady, defenderReady } → هر دو را یکجا ست می‌کند (برای reset/لغو)
+  socket.on('set_dice_status', (payload) => {
+    const { roomCode } = payload;
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
 
-    if (role === 'attacker') room.attackerReady = readyState;
-    if (role === 'defender') room.defenderReady = readyState;
+    if (typeof payload.isAttacker === 'boolean') {
+      // حالت toggle یک‌طرفه
+      if (payload.isAttacker) {
+        room.attackerReady = !!payload.ready;
+      } else {
+        room.defenderReady = !!payload.ready;
+      }
+    } else {
+      // حالت reset کامل (از handleUndo و انتخاب مجدد)
+      room.attackerReady = !!payload.attackerReady;
+      room.defenderReady = !!payload.defenderReady;
+    }
 
-    io.in(roomCode).emit('dice_ready_updated', {
-      attackerReady: room.attackerReady,
-      defenderReady: room.defenderReady,
-    });
-
-    // اگر هر دو نفر دکمه پرتاب تاس را زده باشند
     if (room.attackerReady && room.defenderReady) {
       const state = room.gameState;
       if (state.selectedTerritoryId && state.attackTargetId) {
         const attacker = state.territories[state.selectedTerritoryId];
         const defender = state.territories[state.attackTargetId];
-
         if (attacker && defender) {
           const combat = resolveCombat(attacker.armies, defender.armies);
           const newAttackerArmies = attacker.armies - combat.attackerLosses;
           const newDefenderArmies = defender.armies - combat.defenderLosses;
-
           let newTerritories = { ...state.territories };
           if (newDefenderArmies <= 0) {
             newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - 1 };
@@ -148,7 +145,6 @@ io.on('connection', (socket) => {
             newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
             newTerritories[state.attackTargetId] = { id: defender.id, ownerId: defender.ownerId, armies: newDefenderArmies };
           }
-
           state.territories = newTerritories;
           state.selectedTerritoryId = null;
           state.attackTargetId = null;
@@ -159,26 +155,28 @@ io.on('connection', (socket) => {
           };
         }
       }
-
       room.attackerReady = false;
       room.defenderReady = false;
-
       io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
       io.in(roomCode).emit('game_state_updated', state);
+    } else {
+      io.in(roomCode).emit('dice_ready_updated', {
+        attackerReady: room.attackerReady,
+        defenderReady: room.defenderReady,
+      });
     }
   });
 
+  // همگام‌سازی کامل تغییرات نقشه و لغو حمله در تمامی کلاینت‌ها (بدون تغییر)
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
-
     room.gameState = newState;
     if (!newState.attackTargetId || !newState.selectedTerritoryId) {
       room.attackerReady = false;
       room.defenderReady = false;
       io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
     }
-
     io.in(roomCode).emit('game_state_updated', newState);
   });
 
@@ -187,5 +185,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور کامل و اصلاح‌شده روی پورت ${PORT} فعال است.`);
+  console.log(`سرور روی پورت ${PORT} فعال است.`);
 });
