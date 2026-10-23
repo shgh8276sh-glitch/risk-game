@@ -265,7 +265,7 @@ export default function RiskGamePage() {
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
   };
 
-  // لغو حمله سراسری و همگام‌سازی فوری در تمام نقشه‌ها
+  // لغو حمله سراسری (دست نخورده)
   const handleUndo = () => {
     if (!isMyTurn) return;
     if (gameState.phase === 'reinforce') {
@@ -344,21 +344,27 @@ export default function RiskGamePage() {
     }
   };
 
-  // ===== تابع اصلاح‌شده تاس (بدون race) =====
+  // ====================== فقط این تابع اصلاح شده ======================
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
-    // optimistic UI (دکمه فوری سبز/قرمز شود)
+    const nextAttackerReady = roleIsAttacker ? !attackerReady : attackerReady;
+    const nextDefenderReady = !roleIsAttacker ? !defenderReady : defenderReady;
+
+    // optimistic UI
     if (roleIsAttacker) {
-      setAttackerReady(prev => !prev);
+      setAttackerReady(nextAttackerReady);
     } else {
-      setDefenderReady(prev => !prev);
+      setDefenderReady(nextDefenderReady);
     }
 
-    // سرور خودش toggle می‌کند
+    // فقط فلگ خود را می‌فرستیم + مشخص می‌کنیم از طرف کیست
     socket.emit('set_dice_status', {
       roomCode: currentRoomCode,
-      toggle: roleIsAttacker ? 'attacker' : 'defender',
+      attackerReady: nextAttackerReady,
+      defenderReady: nextDefenderReady,
+      from: roleIsAttacker ? 'attacker' : 'defender',
     });
   };
+  // ==================================================================
 
   const handleTradeCards = (selectedCards: Card[], bonusArmies: number) => {
     if (!isMyTurn || gameState.phase !== 'reinforce') return;
@@ -450,7 +456,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه با دکمه‌های کاملاً واکنش‌گرا */}
+      {/* بنر نبرد تاس دوطرفه */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>

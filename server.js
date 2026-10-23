@@ -106,20 +106,19 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ===== مدیریت کامل تاس دوطرفه (بدون race condition) =====
+  // ====================== فقط این بخش اصلاح شده ======================
   socket.on('set_dice_status', (payload) => {
     const { roomCode } = payload;
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
 
-    // حالت ۱: toggle یک‌طرفه (مهاجم یا مدافع)
-    if (payload.toggle === 'attacker') {
-      room.attackerReady = !room.attackerReady;
-    } else if (payload.toggle === 'defender') {
-      room.defenderReady = !room.defenderReady;
-    }
-    // حالت ۲: reset کامل (از لغو حمله / انتخاب مجدد / مرحله بعد)
-    else if (typeof payload.attackerReady === 'boolean') {
+    // فقط فلگ مربوط به فرستنده را قبول کن (جلوگیری از race)
+    if (payload.from === 'attacker') {
+      room.attackerReady = !!payload.attackerReady;
+    } else if (payload.from === 'defender') {
+      room.defenderReady = !!payload.defenderReady;
+    } else {
+      // حالت reset کامل (لغو حمله، انتخاب مجدد، مرحله بعد)
       room.attackerReady = !!payload.attackerReady;
       room.defenderReady = !!payload.defenderReady;
     }
@@ -127,25 +126,38 @@ io.on('connection', (socket) => {
     // اگر هر دو آماده شدند → فوراً نبرد را حل کن
     if (room.attackerReady && room.defenderReady) {
       const state = room.gameState;
+
       if (state.selectedTerritoryId && state.attackTargetId) {
         const attacker = state.territories[state.selectedTerritoryId];
         const defender = state.territories[state.attackTargetId];
+
         if (attacker && defender) {
           const combat = resolveCombat(attacker.armies, defender.armies);
           const newAttackerArmies = attacker.armies - combat.attackerLosses;
           const newDefenderArmies = defender.armies - combat.defenderLosses;
 
           const newTerritories = { ...state.territories };
+
           if (newDefenderArmies <= 0) {
-            newTerritories[state.selectedTerritoryId] = { ...attacker, armies: Math.max(1, newAttackerArmies - 1) };
+            // منطقه فتح شد
+            newTerritories[state.selectedTerritoryId] = {
+              ...attacker,
+              armies: Math.max(1, newAttackerArmies - 1),
+            };
             newTerritories[state.attackTargetId] = {
               id: defender.id,
               ownerId: attacker.ownerId,
               armies: 1,
             };
           } else {
-            newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
-            newTerritories[state.attackTargetId] = { ...defender, armies: newDefenderArmies };
+            newTerritories[state.selectedTerritoryId] = {
+              ...attacker,
+              armies: newAttackerArmies,
+            };
+            newTerritories[state.attackTargetId] = {
+              ...defender,
+              armies: newDefenderArmies,
+            };
           }
 
           state.territories = newTerritories;
@@ -161,10 +173,14 @@ io.on('connection', (socket) => {
         }
       }
 
-      // همیشه بعد از نبرد فلگ‌ها را صفر کن
+      // بعد از نبرد همیشه فلگ‌ها را صفر کن
       room.attackerReady = false;
       room.defenderReady = false;
-      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
+
+      io.in(roomCode).emit('dice_ready_updated', {
+        attackerReady: false,
+        defenderReady: false,
+      });
       io.in(roomCode).emit('game_state_updated', state);
     } else {
       // فقط وضعیت آماده بودن را به همه بفرست
@@ -174,8 +190,9 @@ io.on('connection', (socket) => {
       });
     }
   });
+  // ==================================================================
 
-  // همگام‌سازی کامل تغییرات نقشه و لغو حمله در تمامی کلاینت‌ها
+  // این بخش را دست نزن
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
