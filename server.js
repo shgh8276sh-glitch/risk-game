@@ -168,7 +168,43 @@ io.on('connection', (socket) => {
     }
   });
 
-  // دریافت وضعیت جدید و پخش فوری آن بدون هیچ فیلتر یا تاخیری به تمام اعضای روم
+  // مدیریت متمرکز و سروری تغییر فاز و چرخش نوبت برای جلوگیری از هرگونه ناهماهنگی
+  socket.on('next_phase_or_turn', ({ roomCode }) => {
+    const room = rooms[roomCode];
+    if (!room || !room.gameState) return;
+
+    let state = room.gameState;
+
+    if (state.phase === 'reinforce') {
+      if (state.reinforcementsRemaining > 0) return;
+      state.phase = 'attack';
+    } else if (state.phase === 'attack') {
+      state.phase = 'fortify';
+    } else {
+      const nextIndex = (state.activePlayerIndex + 1) % state.players.length;
+      const nextPlayer = state.players[nextIndex];
+      const nextTerritoriesCount = Object.values(state.territories).filter(t => t.ownerId === nextPlayer.id).length;
+      const newReinforcements = Math.max(3, Math.floor(nextTerritoriesCount / 3));
+
+      state.phase = 'reinforce';
+      state.activePlayerIndex = nextIndex;
+      state.reinforcementsRemaining = newReinforcements;
+      state.turnNumber = (state.turnNumber || 1) + 1;
+    }
+
+    state.selectedTerritoryId = null;
+    state.attackTargetId = null;
+    state.fortifySourceId = null;
+    state.reinforcementHistory = [];
+
+    room.attackerReady = false;
+    room.defenderReady = false;
+
+    io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
+    io.in(roomCode).emit('game_state_updated', state);
+  });
+
+  // انتشار سراسری تغییرات نقشه و وضعیت بازی
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;

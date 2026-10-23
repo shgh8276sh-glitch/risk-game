@@ -89,7 +89,7 @@ export default function RiskGamePage() {
     });
 
     socket.on('game_state_updated', (newState) => {
-      setGameState(newState);
+      setGameState(JSON.parse(JSON.stringify(newState)));
       if (!newState.attackTargetId || !newState.selectedTerritoryId) {
         setAttackerReady(false);
         setDefenderReady(false);
@@ -276,7 +276,6 @@ export default function RiskGamePage() {
   const isDefender = defenderPlayer?.name === username;
 
   const updateStateAndSync = (newState: GameState) => {
-    // ایجاد Deep Clone بر روی state جدید برای اطمینان از Re-render شدن صحیح در تمام کلاینت‌ها
     const clonedState: GameState = JSON.parse(JSON.stringify(newState));
     setGameState(clonedState);
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState: clonedState });
@@ -488,6 +487,7 @@ export default function RiskGamePage() {
     setShowCardModal(false);
   };
 
+  // ارسال درخواست تغییر فاز یا چرخش نوبت به سرور برای اجرای متمرکز و هماهنگ
   const nextPhaseOrTurn = () => {
     if (!isMyTurn) return;
 
@@ -496,39 +496,11 @@ export default function RiskGamePage() {
       return;
     }
 
-    let updatedState: GameState = JSON.parse(JSON.stringify(gameState));
-
-    if (updatedState.phase === 'reinforce') {
-      if (updatedState.reinforcementsRemaining > 0) return;
-      updatedState.phase = 'attack';
-    } else if (updatedState.phase === 'attack') {
-      updatedState.phase = 'fortify';
-    } else {
-      // تغییر چرخش نوبت
-      const nextIndex = (updatedState.activePlayerIndex + 1) % updatedState.players.length;
-      const nextPlayer = updatedState.players[nextIndex];
-      const nextTerritoriesCount = Object.values(updatedState.territories).filter(t => t.ownerId === nextPlayer.id).length;
-      const newReinforcements = Math.max(3, Math.floor(nextTerritoriesCount / 3));
-
-      updatedState = {
-        ...updatedState,
-        phase: 'reinforce',
-        activePlayerIndex: nextIndex,
-        reinforcementsRemaining: newReinforcements,
-        turnNumber: updatedState.turnNumber + 1,
-        selectedTerritoryId: null,
-        attackTargetId: null,
-        fortifySourceId: null,
-        reinforcementHistory: [],
-      };
+    if (gameState.phase === 'reinforce' && gameState.reinforcementsRemaining > 0) {
+      return;
     }
 
-    setAttackerReady(false);
-    setDefenderReady(false);
-    socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
-    socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'defender', readyState: false });
-    
-    updateStateAndSync(updatedState);
+    socket.emit('next_phase_or_turn', { roomCode: currentRoomCode });
   };
 
   return (
