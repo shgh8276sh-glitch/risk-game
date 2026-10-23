@@ -40,7 +40,7 @@ export default function RiskGamePage() {
     return pid;
   };
 
-  const reinitializeSocketConnection = () => {
+  const syncSocketWithServer = () => {
     if (!socket.connected) socket.connect();
     const savedUsername = localStorage.getItem('risk_username');
     const savedRoomCode = localStorage.getItem('risk_roomCode');
@@ -62,11 +62,11 @@ export default function RiskGamePage() {
   };
 
   useEffect(() => {
-    reinitializeSocketConnection();
+    syncSocketWithServer();
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        reinitializeSocketConnection();
+        syncSocketWithServer();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -303,10 +303,6 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'attack') {
-      setAttackerReady(false);
-      setDefenderReady(false);
-      socket.emit('set_dice_status', { roomCode: currentRoomCode, attackerReady: false, defenderReady: false });
-
       const newState: GameState = {
         ...gameState,
         selectedTerritoryId: null,
@@ -345,19 +341,11 @@ export default function RiskGamePage() {
           updateStateAndSync(updatedState);
         }
       } else if (gameState.selectedTerritoryId === id) {
-        setAttackerReady(false);
-        setDefenderReady(false);
-        socket.emit('set_dice_status', { roomCode: currentRoomCode, attackerReady: false, defenderReady: false });
-
         const clearedState: GameState = { ...gameState, selectedTerritoryId: null, attackTargetId: null };
         updateStateAndSync(clearedState);
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
-          setAttackerReady(false);
-          setDefenderReady(false);
-          socket.emit('set_dice_status', { roomCode: currentRoomCode, attackerReady: false, defenderReady: false });
-
           updatedState = { ...gameState, attackTargetId: id };
           updateStateAndSync(updatedState);
         }
@@ -365,17 +353,18 @@ export default function RiskGamePage() {
     }
   };
 
-  // مدیریت کلیک برای پرتاب تاس مهاجم و مدافع (سبز شدن و ارسال به سرور)
+  // ارسال دقیق نقش بازیکن و وضعیت کلیک تاس به سرور
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
-    const nextAttackerReady = roleIsAttacker ? !attackerReady : attackerReady;
-    const nextDefenderReady = !roleIsAttacker ? !defenderReady : defenderReady;
+    const currentReady = roleIsAttacker ? attackerReady : defenderReady;
+    const nextReady = !currentReady;
 
-    if (roleIsAttacker) setAttackerReady(nextAttackerReady);
-    else setDefenderReady(nextDefenderReady);
+    if (roleIsAttacker) setAttackerReady(nextReady);
+    else setDefenderReady(nextReady);
 
-    socket.emit('toggle_dice_ready', {
+    socket.emit('set_dice_status', {
       roomCode: currentRoomCode,
       role: roleIsAttacker ? 'attacker' : 'defender',
+      readyState: nextReady,
     });
   };
 
@@ -426,9 +415,6 @@ export default function RiskGamePage() {
       };
     }
 
-    setAttackerReady(false);
-    setDefenderReady(false);
-    socket.emit('set_dice_status', { roomCode: currentRoomCode, attackerReady: false, defenderReady: false });
     updateStateAndSync(updatedState);
   };
 
@@ -479,7 +465,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد حمله و پرتاب تاس مهاجم و مدافع */}
+      {/* بنر نبرد حمله و پرتاب تاس با قابلیت تغییر رنگ به سبز و همگام‌سازی لحظه‌ای */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
