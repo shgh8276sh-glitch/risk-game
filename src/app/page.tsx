@@ -362,6 +362,7 @@ export default function RiskGamePage() {
     }
   };
 
+  // ارسال مستقیم و همگام‌سازی وضعیت جدید به سرور با محاسبه دقیق متغیرها
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
     const nextAttackerReady = roleIsAttacker ? !attackerReady : attackerReady;
     const nextDefenderReady = !roleIsAttacker ? !defenderReady : defenderReady;
