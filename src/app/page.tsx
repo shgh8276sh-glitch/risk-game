@@ -6,7 +6,6 @@ import { DiceModal } from '@/components/DiceModal';
 import { CardModal } from '@/components/CardModal';
 import { HelpModal } from '@/components/HelpModal';
 import { initializeGame } from '@/game/engine/setup';
-import { resolveCombat } from '@/game/engine/combat';
 import { GameState, Card } from '@/game/engine/state';
 import { TERRITORIES } from '@/game/data/territories';
 import { socket } from '@/game/socket';
@@ -92,15 +91,9 @@ export default function RiskGamePage() {
       }
     });
 
-    // دریافت وضعیت تایید تاس از سرور برای هر دو بازیکن
     socket.on('dice_ready_updated', ({ attackerReady: aReady, defenderReady: dReady }) => {
       setAttackerReady(aReady);
       setDefenderReady(dReady);
-
-      // اگر هر دو تایید کرده بودند، نبرد اجرا شود
-      if (aReady && dReady) {
-        executeCombatEngine();
-      }
     });
 
     return () => {
@@ -365,44 +358,6 @@ export default function RiskGamePage() {
     socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: roleIsAttacker, isReady: nextVal });
   };
 
-  const executeCombatEngine = () => {
-    if (!gameState || !gameState.selectedTerritoryId || !gameState.attackTargetId) return;
-    const attacker = gameState.territories[gameState.selectedTerritoryId];
-    const defender = gameState.territories[gameState.attackTargetId];
-    if (!attacker || !defender) return;
-
-    const combatResult = resolveCombat(attacker.armies, defender.armies);
-    const newAttackerArmies = attacker.armies - combatResult.attackerLosses;
-    const newDefenderArmies = defender.armies - combatResult.defenderLosses;
-
-    let newTerritories = { ...gameState.territories };
-    if (newDefenderArmies <= 0) {
-      newTerritories[gameState.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - 1 };
-      newTerritories[gameState.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: 1 };
-    } else {
-      newTerritories[gameState.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
-      newTerritories[gameState.attackTargetId] = { id: defender.id, ownerId: defender.ownerId, armies: newDefenderArmies };
-    }
-
-    socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
-    socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
-
-    const updatedState: GameState = {
-      ...gameState,
-      territories: newTerritories,
-      selectedTerritoryId: null,
-      attackTargetId: null,
-      diceResult: {
-        attacker: combatResult.attackerRolls,
-        defender: combatResult.defenderRolls,
-        message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد!' : `تلفات مهاجم: ${combatResult.attackerLosses} | مدافع: ${combatResult.defenderLosses}`,
-      },
-    };
-
-    updateStateAndSync(updatedState);
-    setShowDiceModal(true);
-  };
-
   const handleTradeCards = (selectedCards: Card[], bonusArmies: number) => {
     if (!isMyTurn || gameState.phase !== 'reinforce') return;
 
@@ -502,7 +457,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تأس دوطرفه متصل به سرور */}
+      {/* بنر نبرد تاس دوطرفه با مدیریت سرور */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>

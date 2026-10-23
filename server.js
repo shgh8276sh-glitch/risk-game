@@ -20,6 +20,27 @@ function generateRoomCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+function resolveCombat(attackerArmies, defenderArmies) {
+  const attackerDiceCount = Math.min(attackerArmies - 1, 3);
+  const defenderDiceCount = Math.min(defenderArmies, 2);
+
+  const attackerRolls = Array.from({ length: attackerDiceCount }, () => Math.floor(Math.random() * 6) + 1).sort((a, b) => b - a);
+  const defenderRolls = Array.from({ length: defenderDiceCount }, () => Math.floor(Math.random() * 6) + 1).sort((a, b) => b - a);
+
+  let attackerLosses = 0;
+  let defenderLosses = 0;
+
+  for (let i = 0; i < Math.min(attackerRolls.length, defenderRolls.length); i++) {
+    if (attackerRolls[i] > defenderRolls[i]) {
+      defenderLosses++;
+    } else {
+      attackerLosses++;
+    }
+  }
+
+  return { attackerRolls, defenderRolls, attackerLosses, defenderLosses };
+}
+
 io.on('connection', (socket) => {
   socket.on('create_room', ({ username, playerId, maxPlayers, adminSecret }, callback) => {
     if (adminSecret !== ADMIN_SECRET) {
@@ -77,20 +98,60 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت مرکزی وضعیت آماده‌باش تاس‌ها در سرور
+  // مدیریت مرکزی تایید تاس‌ها و اجرای خودکار نبرد در سرور
   socket.on('toggle_dice_ready', ({ roomCode, isAttacker, isReady }) => {
     const room = rooms[roomCode];
-    if (!room) return;
+    if (!room || !room.gameState) return;
 
     if (isAttacker) room.attackerReady = isReady;
     else room.defenderReady = isReady;
 
-    io.in(roomCode).emit('dice_ready_updated', {
-      attackerReady: room.attackerReady,
-      defenderReady: room.defenderReady,
-    });
+    // اگر هر دو تایید کردند، سرور نبرد را محاسبه می‌کند
+    if (room.attackerReady && room.defenderReady) {
+      const state = room.gameState;
+      if (state.selectedTerritoryId && state.attackTargetId) {
+        const attacker = state.territories[state.selectedTerritoryId];
+        const defender = state.territories[state.attackTargetId];
+
+        if (attacker && defender) {
+          const combat = resolveCombat(attacker.armies, defender.armies);
+          const newAttackerArmies = attacker.armies - combat.attackerLosses;
+          const newDefenderArmies = defender.armies - combat.defenderLosses;
+
+          let newTerritories = { ...state.territories };
+          if (newDefenderArmies <= 0) {
+            newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - 1 };
+            newTerritories[state.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: 1 };
+          } else {
+            newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
+            newTerritories[state.attackTargetId] = { id: defender.id, ownerId: defender.ownerId, armies: newDefenderArmies };
+          }
+
+          state.territories = newTerritories;
+          state.selectedTerritoryId = null;
+          state.attackTargetId = null;
+          state.diceResult = {
+            attacker: combat.attackerRolls,
+            defender: combat.defenderRolls,
+            message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد!' : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
+          };
+        }
+      }
+
+      room.attackerReady = false;
+      room.defenderReady = false;
+
+      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
+      io.in(roomCode).emit('game_state_updated', state);
+    } else {
+      io.in(roomCode).emit('dice_ready_updated', {
+        attackerReady: room.attackerReady,
+        defenderReady: room.defenderReady,
+      });
+    }
   });
 
+  // به‌روزرسانی و همگام‌سازی نقشه و لغو حمله برای همه
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
@@ -110,5 +171,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور فعال است.`);
+  console.log(`سرور بازی ریسک روی پورت ${PORT} فعال شد.`);
 });
