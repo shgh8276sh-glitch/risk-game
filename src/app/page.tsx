@@ -265,7 +265,7 @@ export default function RiskGamePage() {
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
   };
 
-  // لغو حمله سراسری و همگام‌سازی فوری در تمام نقشه‌ها (بدون تغییر منطق)
+  // لغو حمله سراسری و همگام‌سازی فوری در تمام نقشه‌ها
   const handleUndo = () => {
     if (!isMyTurn) return;
     if (gameState.phase === 'reinforce') {
@@ -344,18 +344,19 @@ export default function RiskGamePage() {
     }
   };
 
-  // === اصلاح شده: فقط وضعیت خود را toggle می‌کند (بدون race) ===
+  // ===== تابع اصلاح‌شده تاس (بدون race) =====
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
-    const nextReady = roleIsAttacker ? !attackerReady : !defenderReady;
+    // optimistic UI (دکمه فوری سبز/قرمز شود)
     if (roleIsAttacker) {
-      setAttackerReady(nextReady);
+      setAttackerReady(prev => !prev);
     } else {
-      setDefenderReady(nextReady);
+      setDefenderReady(prev => !prev);
     }
+
+    // سرور خودش toggle می‌کند
     socket.emit('set_dice_status', {
       roomCode: currentRoomCode,
-      isAttacker: roleIsAttacker,
-      ready: nextReady,
+      toggle: roleIsAttacker ? 'attacker' : 'defender',
     });
   };
 

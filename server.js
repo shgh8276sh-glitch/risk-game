@@ -106,28 +106,25 @@ io.on('connection', (socket) => {
     }
   });
 
-  // === اصلاح شده: مدیریت دقیق وضعیت تاس بدون race condition ===
-  // پشتیبانی از دو حالت:
-  // 1) { isAttacker, ready } → فقط یک طرف را آپدیت می‌کند (برای toggle)
-  // 2) { attackerReady, defenderReady } → هر دو را یکجا ست می‌کند (برای reset/لغو)
+  // ===== مدیریت کامل تاس دوطرفه (بدون race condition) =====
   socket.on('set_dice_status', (payload) => {
     const { roomCode } = payload;
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
 
-    if (typeof payload.isAttacker === 'boolean') {
-      // حالت toggle یک‌طرفه
-      if (payload.isAttacker) {
-        room.attackerReady = !!payload.ready;
-      } else {
-        room.defenderReady = !!payload.ready;
-      }
-    } else {
-      // حالت reset کامل (از handleUndo و انتخاب مجدد)
+    // حالت ۱: toggle یک‌طرفه (مهاجم یا مدافع)
+    if (payload.toggle === 'attacker') {
+      room.attackerReady = !room.attackerReady;
+    } else if (payload.toggle === 'defender') {
+      room.defenderReady = !room.defenderReady;
+    }
+    // حالت ۲: reset کامل (از لغو حمله / انتخاب مجدد / مرحله بعد)
+    else if (typeof payload.attackerReady === 'boolean') {
       room.attackerReady = !!payload.attackerReady;
       room.defenderReady = !!payload.defenderReady;
     }
 
+    // اگر هر دو آماده شدند → فوراً نبرد را حل کن
     if (room.attackerReady && room.defenderReady) {
       const state = room.gameState;
       if (state.selectedTerritoryId && state.attackTargetId) {
@@ -137,29 +134,40 @@ io.on('connection', (socket) => {
           const combat = resolveCombat(attacker.armies, defender.armies);
           const newAttackerArmies = attacker.armies - combat.attackerLosses;
           const newDefenderArmies = defender.armies - combat.defenderLosses;
-          let newTerritories = { ...state.territories };
+
+          const newTerritories = { ...state.territories };
           if (newDefenderArmies <= 0) {
-            newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - 1 };
-            newTerritories[state.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: 1 };
+            newTerritories[state.selectedTerritoryId] = { ...attacker, armies: Math.max(1, newAttackerArmies - 1) };
+            newTerritories[state.attackTargetId] = {
+              id: defender.id,
+              ownerId: attacker.ownerId,
+              armies: 1,
+            };
           } else {
             newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
-            newTerritories[state.attackTargetId] = { id: defender.id, ownerId: defender.ownerId, armies: newDefenderArmies };
+            newTerritories[state.attackTargetId] = { ...defender, armies: newDefenderArmies };
           }
+
           state.territories = newTerritories;
           state.selectedTerritoryId = null;
           state.attackTargetId = null;
           state.diceResult = {
             attacker: combat.attackerRolls,
             defender: combat.defenderRolls,
-            message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد!' : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
+            message: newDefenderArmies <= 0
+              ? '🎉 منطقه فتح شد!'
+              : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
           };
         }
       }
+
+      // همیشه بعد از نبرد فلگ‌ها را صفر کن
       room.attackerReady = false;
       room.defenderReady = false;
       io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
       io.in(roomCode).emit('game_state_updated', state);
     } else {
+      // فقط وضعیت آماده بودن را به همه بفرست
       io.in(roomCode).emit('dice_ready_updated', {
         attackerReady: room.attackerReady,
         defenderReady: room.defenderReady,
@@ -167,7 +175,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // همگام‌سازی کامل تغییرات نقشه و لغو حمله در تمامی کلاینت‌ها (بدون تغییر)
+  // همگام‌سازی کامل تغییرات نقشه و لغو حمله در تمامی کلاینت‌ها
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
