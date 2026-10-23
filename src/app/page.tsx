@@ -277,7 +277,7 @@ export default function RiskGamePage() {
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
   };
 
-  // لغو حمله کاملاً سراسری و همگام در تمام صفحات
+  // لغو حمله سراسری و همگام‌سازی فوری در تمام نقشه‌ها
   const handleUndo = () => {
     if (!isMyTurn) return;
 
@@ -363,7 +363,7 @@ export default function RiskGamePage() {
     }
   };
 
-  // کلیک روی پرتاب تاس (تایید/لغو محلی و ارسال به سرور)
+  // ارسال وضعیت جدید تاس به سرور به محض کلیک
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
     const nextAttackerReady = roleIsAttacker ? !attackerReady : attackerReady;
     const nextDefenderReady = !roleIsAttacker ? !defenderReady : defenderReady;
@@ -478,7 +478,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه با عناوین دقیق درخواستی */}
+      {/* بنر نبرد تاس دوطرفه با دکمه‌های کاملاً واکنش‌گرا */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
