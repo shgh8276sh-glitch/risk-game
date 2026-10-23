@@ -179,6 +179,7 @@ io.on('connection', (socket) => {
       io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
     }
 
+    // ارسال سراسری و همگام‌سازی صددرصدی به همه کلاینت‌ها در روم
     io.in(roomCode).emit('game_state_updated', newState);
   });
 

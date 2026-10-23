@@ -324,6 +324,7 @@ export default function RiskGamePage() {
     }
   };
 
+  // بررسی اتصال مسیر (BFS) با در نظر گرفتن ارتباط بین ژاپن و مغولستان به عنوان همسایه قانونی
   const checkFortifyPath = (startId: string, targetId: string, ownerId: string): boolean => {
     if (startId === targetId) return false;
     const queue: string[] = [startId];
@@ -335,7 +336,12 @@ export default function RiskGamePage() {
 
       const territoryData = TERRITORIES.find(t => t.id === currentId);
       if (territoryData) {
-        for (const neighborId of territoryData.neighbors) {
+        let neighbors = [...territoryData.neighbors];
+        // اضافه کردن ارتباط کمکی بین ژاپن و مغولستان
+        if (currentId === 'japan' && !neighbors.includes('mongolia')) neighbors.push('mongolia');
+        if (currentId === 'mongolia' && !neighbors.includes('japan')) neighbors.push('japan');
+
+        for (const neighborId of neighbors) {
           const neighborTerritory = gameState.territories[neighborId];
           if (neighborTerritory && neighborTerritory.ownerId === ownerId && !visited.has(neighborId)) {
             visited.add(neighborId);
@@ -378,7 +384,11 @@ export default function RiskGamePage() {
         updateStateAndSync(clearedState);
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
-        if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
+        let selectedNeighbors = selected ? [...selected.neighbors] : [];
+        if (gameState.selectedTerritoryId === 'japan') selectedNeighbors.push('mongolia');
+        if (gameState.selectedTerritoryId === 'mongolia') selectedNeighbors.push('japan');
+
+        if (selected && (selectedNeighbors.includes(id)) && territory.ownerId !== activePlayer.id) {
           setAttackerReady(false);
           setDefenderReady(false);
           socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
