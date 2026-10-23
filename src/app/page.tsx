@@ -80,7 +80,6 @@ export default function RiskGamePage() {
       setInLobby(false);
     });
 
-    // بررسی و باز شدن خودکار مودال تاس به محض دریافت نتیجه از سرور
     socket.on('game_state_updated', (newState) => {
       setGameState(newState);
       if (!newState.attackTargetId) {
@@ -295,8 +294,7 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'attack') {
-      socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
-      socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
+      socket.emit('trigger_combat_if_ready', { roomCode: currentRoomCode, attackerReadyState: false, defenderReadyState: false });
 
       const newState: GameState = {
         ...gameState,
@@ -336,16 +334,14 @@ export default function RiskGamePage() {
           updateStateAndSync(updatedState);
         }
       } else if (gameState.selectedTerritoryId === id) {
-        socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
-        socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
+        socket.emit('trigger_combat_if_ready', { roomCode: currentRoomCode, attackerReadyState: false, defenderReadyState: false });
 
         updatedState = { ...gameState, selectedTerritoryId: null, attackTargetId: null };
         updateStateAndSync(updatedState);
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
-          socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
-          socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
+          socket.emit('trigger_combat_if_ready', { roomCode: currentRoomCode, attackerReadyState: false, defenderReadyState: false });
 
           updatedState = { ...gameState, attackTargetId: id };
           updateStateAndSync(updatedState);
@@ -354,9 +350,16 @@ export default function RiskGamePage() {
     }
   };
 
+  // ارسال وضعیت دقیق تایید به سرور برای اجرای قانون AND
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
-    const nextVal = roleIsAttacker ? !attackerReady : !defenderReady;
-    socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: roleIsAttacker, isReady: nextVal });
+    const newAttackerReady = roleIsAttacker ? !attackerReady : attackerReady;
+    const newDefenderReady = !roleIsAttacker ? !defenderReady : defenderReady;
+
+    socket.emit('trigger_combat_if_ready', {
+      roomCode: currentRoomCode,
+      attackerReadyState: newAttackerReady,
+      defenderReadyState: newDefenderReady,
+    });
   };
 
   const handleTradeCards = (selectedCards: Card[], bonusArmies: number) => {
@@ -406,8 +409,7 @@ export default function RiskGamePage() {
       };
     }
 
-    socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
-    socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
+    socket.emit('trigger_combat_if_ready', { roomCode: currentRoomCode, attackerReadyState: false, defenderReadyState: false });
     updateStateAndSync(updatedState);
   };
 
@@ -458,7 +460,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه */}
+      {/* بنر نبرد تاس دوطرفه با منطق سخت‌گیرانه AND سرور */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>

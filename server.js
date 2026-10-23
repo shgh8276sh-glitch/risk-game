@@ -98,15 +98,15 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت مرکزی تایید تاس‌ها و اجرای خودکار نبرد در سرور
-  socket.on('toggle_dice_ready', ({ roomCode, isAttacker, isReady }) => {
+  // اجرای قانون AND سخت‌گیرانه برای تاس‌ها
+  socket.on('trigger_combat_if_ready', ({ roomCode, attackerReadyState, defenderReadyState }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
 
-    if (isAttacker) room.attackerReady = isReady;
-    else room.defenderReady = isReady;
+    room.attackerReady = attackerReadyState;
+    room.defenderReady = defenderReadyState;
 
-    // اگر هر دو تایید کردند، سرور نبرد را محاسبه می‌کند
+    // فقط و فقط زمانی که هر دو true باشند تاس ریخته می‌شود
     if (room.attackerReady && room.defenderReady) {
       const state = room.gameState;
       if (state.selectedTerritoryId && state.attackTargetId) {
@@ -151,7 +151,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // به‌روزرسانی و همگام‌سازی نقشه و لغو حمله برای همه
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
@@ -171,5 +170,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور بازی ریسک روی پورت ${PORT} فعال شد.`);
+  console.log(`سرور روی پورت ${PORT} فعال است.`);
 });
