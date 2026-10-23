@@ -80,6 +80,7 @@ export default function RiskGamePage() {
       setInLobby(false);
     });
 
+    // بررسی و باز شدن خودکار مودال تاس به محض دریافت نتیجه از سرور
     socket.on('game_state_updated', (newState) => {
       setGameState(newState);
       if (!newState.attackTargetId) {
@@ -457,7 +458,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه با مدیریت سرور */}
+      {/* بنر نبرد تاس دوطرفه */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
@@ -513,7 +514,12 @@ export default function RiskGamePage() {
           attackerRolls={gameState.diceResult.attacker} 
           defenderRolls={gameState.diceResult.defender} 
           message={gameState.diceResult.message} 
-          onClose={() => { setShowDiceModal(false); setGameState({ ...gameState, diceResult: null }); }} 
+          onClose={() => { 
+            setShowDiceModal(false); 
+            const resetState = { ...gameState, diceResult: null };
+            setGameState(resetState);
+            socket.emit('update_game_state', { roomCode: currentRoomCode, newState: resetState });
+          }} 
         />
       )}
     </main>
