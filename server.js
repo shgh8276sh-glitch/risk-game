@@ -106,7 +106,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت وضعیت تایید و قفل شدن دکمه‌های تاس
+  // مدیریت وضعیت تایید و قفل شدن تاس‌ها با منطق AND
   socket.on('set_dice_status', ({ roomCode, attackerReady, defenderReady }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
@@ -114,7 +114,6 @@ io.on('connection', (socket) => {
     room.attackerReady = attackerReady;
     room.defenderReady = defenderReady;
 
-    // اگر هر دو تایید (قفل) کرده بودند، تاس ریخته شود
     if (room.attackerReady && room.defenderReady) {
       const state = room.gameState;
       if (state.selectedTerritoryId && state.attackTargetId) {
@@ -159,13 +158,13 @@ io.on('connection', (socket) => {
     }
   });
 
-  // به‌روزرسانی کلی وضعیت بازی و همگام‌سازی لغو حمله
+  // همگام‌سازی کامل وضعیت بازی و لغو حمله در همه صفحات
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
 
     room.gameState = newState;
-    if (!newState.attackTargetId) {
+    if (!newState.attackTargetId || !newState.selectedTerritoryId) {
       room.attackerReady = false;
       room.defenderReady = false;
       io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });

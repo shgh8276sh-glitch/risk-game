@@ -86,7 +86,7 @@ export default function RiskGamePage() {
 
     socket.on('game_state_updated', (newState) => {
       setGameState(newState);
-      if (!newState.attackTargetId) {
+      if (!newState.attackTargetId || !newState.selectedTerritoryId) {
         setAttackerReady(false);
         setDefenderReady(false);
       }
@@ -362,7 +362,6 @@ export default function RiskGamePage() {
     }
   };
 
-  // مدیریت کلیک برای تغییر وضعیت محلی و ارسال به سرور
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
     const nextAttackerReady = roleIsAttacker ? !attackerReady : attackerReady;
     const nextDefenderReady = !roleIsAttacker ? !defenderReady : defenderReady;
@@ -477,7 +476,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه با دکمه‌های واکنش‌گرا و کاملاً همگام */}
+      {/* بنر نبرد تاس دوطرفه با عناوین دقیق درخواستی */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
@@ -489,7 +488,7 @@ export default function RiskGamePage() {
                   attackerReady ? 'bg-green-600 text-white shadow-inner scale-95 ring-2 ring-emerald-400' : 'bg-red-600 text-white hover:bg-red-500'
                 }`}
               >
-                {attackerReady ? '✅ تاس مهاجم قفل شد (تایید شد - کلیک برای لغو)' : '🎲 پرتاب تاس مهاجم (تایید)'}
+                {attackerReady ? 'پرتاب تاس مهاجم (باید شد - کلیک برای لغو)' : 'پرتاب تاس مهاجم'}
               </button>
             )}
             {isDefender && (
@@ -499,12 +498,12 @@ export default function RiskGamePage() {
                   defenderReady ? 'bg-green-600 text-white shadow-inner scale-95 ring-2 ring-emerald-400' : 'bg-blue-600 text-white hover:bg-blue-500'
                 }`}
               >
-                {defenderReady ? '✅ تاس مدافع قفل شد (تایید شد - کلیک برای لغو)' : '🛡️ پرتاب تاس مدافع (تایید)'}
+                {defenderReady ? 'پرتاب تاس مدافع (باید شد - کلیک برای لغو)' : 'پرتاب تاس مدافع'}
               </button>
             )}
             {!isAttacker && !isDefender && (
               <span className="text-xs text-yellow-300 font-bold">
-                مهاجم: {attackerReady ? '✅ قفل' : '⏳ منتظر'} | مدافع: {defenderReady ? '✅ قفل' : '⏳ منتظر'}
+                مهاجم: {attackerReady ? '✅ تایید' : '⏳ منتظر'} | مدافع: {defenderReady ? '✅ تایید' : '⏳ منتظر'}
               </span>
             )}
           </div>
