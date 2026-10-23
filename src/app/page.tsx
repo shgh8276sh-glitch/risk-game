@@ -294,7 +294,8 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'attack') {
-      socket.emit('trigger_combat_if_ready', { roomCode: currentRoomCode, attackerReadyState: false, defenderReadyState: false });
+      socket.emit('set_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
+      socket.emit('set_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
 
       const newState: GameState = {
         ...gameState,
@@ -334,14 +335,16 @@ export default function RiskGamePage() {
           updateStateAndSync(updatedState);
         }
       } else if (gameState.selectedTerritoryId === id) {
-        socket.emit('trigger_combat_if_ready', { roomCode: currentRoomCode, attackerReadyState: false, defenderReadyState: false });
+        socket.emit('set_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
+        socket.emit('set_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
 
         updatedState = { ...gameState, selectedTerritoryId: null, attackTargetId: null };
         updateStateAndSync(updatedState);
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
-          socket.emit('trigger_combat_if_ready', { roomCode: currentRoomCode, attackerReadyState: false, defenderReadyState: false });
+          socket.emit('set_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
+          socket.emit('set_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
 
           updatedState = { ...gameState, attackTargetId: id };
           updateStateAndSync(updatedState);
@@ -350,15 +353,15 @@ export default function RiskGamePage() {
     }
   };
 
-  // ارسال وضعیت دقیق تایید به سرور برای اجرای قانون AND
+  // ارسال وضعیت جدید این دکمه به سرور
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
-    const newAttackerReady = roleIsAttacker ? !attackerReady : attackerReady;
-    const newDefenderReady = !roleIsAttacker ? !defenderReady : defenderReady;
+    const currentStatus = roleIsAttacker ? attackerReady : defenderReady;
+    const targetStatus = !currentStatus;
 
-    socket.emit('trigger_combat_if_ready', {
+    socket.emit('set_dice_ready', {
       roomCode: currentRoomCode,
-      attackerReadyState: newAttackerReady,
-      defenderReadyState: newDefenderReady,
+      isAttacker: roleIsAttacker,
+      isReady: targetStatus,
     });
   };
 
@@ -409,7 +412,8 @@ export default function RiskGamePage() {
       };
     }
 
-    socket.emit('trigger_combat_if_ready', { roomCode: currentRoomCode, attackerReadyState: false, defenderReadyState: false });
+    socket.emit('set_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
+    socket.emit('set_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
     updateStateAndSync(updatedState);
   };
 
@@ -460,7 +464,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه با منطق سخت‌گیرانه AND سرور */}
+      {/* بنر نبرد تاس دوطرفه با دکمه‌های کاملاً همگام */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
@@ -490,7 +494,7 @@ export default function RiskGamePage() {
 
       <Map state={gameState} onSelectTerritory={handleTerritoryClick} />
 
-      {showHelpModal && <HelpModal onClose={() => setShowHelpModal(false)} />}
+      {showHelpModal && HelpModal && <HelpModal onClose={() => setShowHelpModal(false)} />}
       
       {showMissionModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">

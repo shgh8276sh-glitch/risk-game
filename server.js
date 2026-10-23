@@ -98,15 +98,18 @@ io.on('connection', (socket) => {
     }
   });
 
-  // اجرای قانون AND سخت‌گیرانه برای تاس‌ها
-  socket.on('trigger_combat_if_ready', ({ roomCode, attackerReadyState, defenderReadyState }) => {
+  // مدیریت صریح و مقتدرانه وضعیت تایید تاس‌ها
+  socket.on('set_dice_ready', ({ roomCode, isAttacker, isReady }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
 
-    room.attackerReady = attackerReadyState;
-    room.defenderReady = defenderReadyState;
+    if (isAttacker) {
+      room.attackerReady = isReady;
+    } else {
+      room.defenderReady = isReady;
+    }
 
-    // فقط و فقط زمانی که هر دو true باشند تاس ریخته می‌شود
+    // بررسی شرط AND دقیق
     if (room.attackerReady && room.defenderReady) {
       const state = room.gameState;
       if (state.selectedTerritoryId && state.attackTargetId) {
@@ -138,6 +141,7 @@ io.on('connection', (socket) => {
         }
       }
 
+      // ریسِت کردن وضعیت آمادگی برای نبرد بعدی
       room.attackerReady = false;
       room.defenderReady = false;
 
@@ -170,5 +174,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور روی پورت ${PORT} فعال است.`);
+  console.log(`سرور فعال است.`);
 });
