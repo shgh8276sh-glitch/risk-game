@@ -31,6 +31,8 @@ io.on('connection', (socket) => {
       maxPlayers: maxPlayers || 5,
       players: [{ socketId: socket.id, playerId, name: username, color: '#dc2626', isHost: true }],
       gameState: null,
+      attackerReady: false,
+      defenderReady: false,
     };
     socket.join(roomCode);
     callback({ success: true, roomCode, players: rooms[roomCode].players });
@@ -68,21 +70,38 @@ io.on('connection', (socket) => {
   socket.on('start_game', ({ roomCode, initialState }) => {
     const room = rooms[roomCode];
     if (room) {
-      room.gameState = {
-        ...initialState,
-        attackerReady: false,
-        defenderReady: false,
-      };
-      io.in(roomCode).emit('game_started', room.gameState);
+      room.gameState = initialState;
+      room.attackerReady = false;
+      room.defenderReady = false;
+      io.in(roomCode).emit('game_started', initialState);
     }
   });
 
-  // مدیریت یکپارچه وضعیت بازی و تاس‌ها در سرور
+  // مدیریت مرکزی وضعیت آماده‌باش تاس‌ها در سرور
+  socket.on('toggle_dice_ready', ({ roomCode, isAttacker, isReady }) => {
+    const room = rooms[roomCode];
+    if (!room) return;
+
+    if (isAttacker) room.attackerReady = isReady;
+    else room.defenderReady = isReady;
+
+    io.in(roomCode).emit('dice_ready_updated', {
+      attackerReady: room.attackerReady,
+      defenderReady: room.defenderReady,
+    });
+  });
+
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
 
     room.gameState = newState;
+    if (!newState.attackTargetId) {
+      room.attackerReady = false;
+      room.defenderReady = false;
+      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
+    }
+
     io.in(roomCode).emit('game_state_updated', newState);
   });
 
@@ -91,5 +110,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور بازی ریسک روی پورت ${PORT} فعال شد.`);
+  console.log(`سرور فعال است.`);
 });

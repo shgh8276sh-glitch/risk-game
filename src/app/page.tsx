@@ -29,7 +29,6 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // وضعیت‌های محلی برای تأس دوطرفه
   const [attackerReady, setAttackerReady] = useState<boolean>(false);
   const [defenderReady, setDefenderReady] = useState<boolean>(false);
 
@@ -93,9 +92,15 @@ export default function RiskGamePage() {
       }
     });
 
+    // دریافت وضعیت تایید تاس از سرور برای هر دو بازیکن
     socket.on('dice_ready_updated', ({ attackerReady: aReady, defenderReady: dReady }) => {
       setAttackerReady(aReady);
       setDefenderReady(dReady);
+
+      // اگر هر دو تایید کرده بودند، نبرد اجرا شود
+      if (aReady && dReady) {
+        executeCombatEngine();
+      }
     });
 
     return () => {
@@ -296,8 +301,6 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'attack') {
-      setAttackerReady(false);
-      setDefenderReady(false);
       socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
       socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
 
@@ -339,8 +342,6 @@ export default function RiskGamePage() {
           updateStateAndSync(updatedState);
         }
       } else if (gameState.selectedTerritoryId === id) {
-        setAttackerReady(false);
-        setDefenderReady(false);
         socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
         socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
 
@@ -349,8 +350,6 @@ export default function RiskGamePage() {
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
-          setAttackerReady(false);
-          setDefenderReady(false);
           socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
           socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
 
@@ -363,23 +362,14 @@ export default function RiskGamePage() {
 
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
     const nextVal = roleIsAttacker ? !attackerReady : !defenderReady;
-    if (roleIsAttacker) setAttackerReady(nextVal);
-    else setDefenderReady(nextVal);
-
     socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: roleIsAttacker, isReady: nextVal });
-
-    const aReady = roleIsAttacker ? nextVal : attackerReady;
-    const dReady = !roleIsAttacker ? nextVal : defenderReady;
-
-    if (aReady && dReady) {
-      handleExecuteCombat();
-    }
   };
 
-  const handleExecuteCombat = () => {
-    if (!gameState.selectedTerritoryId || !gameState.attackTargetId) return;
+  const executeCombatEngine = () => {
+    if (!gameState || !gameState.selectedTerritoryId || !gameState.attackTargetId) return;
     const attacker = gameState.territories[gameState.selectedTerritoryId];
     const defender = gameState.territories[gameState.attackTargetId];
+    if (!attacker || !defender) return;
 
     const combatResult = resolveCombat(attacker.armies, defender.armies);
     const newAttackerArmies = attacker.armies - combatResult.attackerLosses;
@@ -394,8 +384,6 @@ export default function RiskGamePage() {
       newTerritories[gameState.attackTargetId] = { id: defender.id, ownerId: defender.ownerId, armies: newDefenderArmies };
     }
 
-    setAttackerReady(false);
-    setDefenderReady(false);
     socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
     socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
 
@@ -462,8 +450,6 @@ export default function RiskGamePage() {
       };
     }
 
-    setAttackerReady(false);
-    setDefenderReady(false);
     socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
     socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: false, isReady: false });
     updateStateAndSync(updatedState);
@@ -516,7 +502,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تأس دوطرفه */}
+      {/* بنر نبرد تأس دوطرفه متصل به سرور */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
