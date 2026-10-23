@@ -168,7 +168,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // همگام‌سازی صددرصدی و سراسری وضعیت نقشه و بازی برای همه کلاینت‌ها
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;

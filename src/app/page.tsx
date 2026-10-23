@@ -280,7 +280,6 @@ export default function RiskGamePage() {
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
   };
 
-  // لغو سراسری حمله و پاکسازی وضعیت تاس‌ها برای همه بازیکنان
   const handleUndo = () => {
     if (!isMyTurn) return;
 
@@ -427,7 +426,6 @@ export default function RiskGamePage() {
     });
   };
 
-  // همگام‌سازی لحظه‌ای جابجایی نیروها برای تمام بازیکنان روی نقشه
   const executeFortifyTransfer = () => {
     if (!gameState.fortifySourceId || !fortifyTargetId) return;
 
