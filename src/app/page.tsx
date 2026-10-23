@@ -276,8 +276,10 @@ export default function RiskGamePage() {
   const isDefender = defenderPlayer?.name === username;
 
   const updateStateAndSync = (newState: GameState) => {
-    setGameState(newState);
-    socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
+    // ایجاد Deep Clone بر روی state جدید برای اطمینان از Re-render شدن صحیح در تمام کلاینت‌ها
+    const clonedState: GameState = JSON.parse(JSON.stringify(newState));
+    setGameState(clonedState);
+    socket.emit('update_game_state', { roomCode: currentRoomCode, newState: clonedState });
   };
 
   const handleUndo = () => {
@@ -324,7 +326,6 @@ export default function RiskGamePage() {
     }
   };
 
-  // بررسی اتصال مسیر (BFS) با در نظر گرفتن ارتباط بین ژاپن و مغولستان به عنوان همسایه قانونی
   const checkFortifyPath = (startId: string, targetId: string, ownerId: string): boolean => {
     if (startId === targetId) return false;
     const queue: string[] = [startId];
@@ -337,7 +338,6 @@ export default function RiskGamePage() {
       const territoryData = TERRITORIES.find(t => t.id === currentId);
       if (territoryData) {
         let neighbors = [...territoryData.neighbors];
-        // اضافه کردن ارتباط کمکی بین ژاپن و مغولستان
         if (currentId === 'japan' && !neighbors.includes('mongolia')) neighbors.push('mongolia');
         if (currentId === 'mongolia' && !neighbors.includes('japan')) neighbors.push('japan');
 
@@ -356,22 +356,27 @@ export default function RiskGamePage() {
   const handleTerritoryClick = (id: string) => {
     if (!isMyTurn) return;
     const territory = gameState.territories[id];
-    let updatedState = { ...gameState };
 
     if (gameState.phase === 'reinforce') {
       if (territory.ownerId === activePlayer.id && gameState.reinforcementsRemaining > 0) {
-        updatedState = {
+        const updatedState: GameState = {
           ...gameState,
-          territories: { ...gameState.territories, [id]: { ...territory, armies: territory.armies + 1 } },
+          territories: {
+            ...gameState.territories,
+            [id]: { ...territory, armies: territory.armies + 1 },
+          },
           reinforcementsRemaining: gameState.reinforcementsRemaining - 1,
-          reinforcementHistory: [...(gameState.reinforcementHistory || []), { territoryId: id, armiesAdded: 1 }],
+          reinforcementHistory: [
+            ...(gameState.reinforcementHistory || []),
+            { territoryId: id, armiesAdded: 1 },
+          ],
         };
         updateStateAndSync(updatedState);
       }
     } else if (gameState.phase === 'attack') {
       if (!gameState.selectedTerritoryId) {
         if (territory.ownerId === activePlayer.id && territory.armies > 1) {
-          updatedState = { ...gameState, selectedTerritoryId: id };
+          const updatedState: GameState = { ...gameState, selectedTerritoryId: id };
           updateStateAndSync(updatedState);
         }
       } else if (gameState.selectedTerritoryId === id) {
@@ -388,24 +393,24 @@ export default function RiskGamePage() {
         if (gameState.selectedTerritoryId === 'japan') selectedNeighbors.push('mongolia');
         if (gameState.selectedTerritoryId === 'mongolia') selectedNeighbors.push('japan');
 
-        if (selected && (selectedNeighbors.includes(id)) && territory.ownerId !== activePlayer.id) {
+        if (selected && selectedNeighbors.includes(id) && territory.ownerId !== activePlayer.id) {
           setAttackerReady(false);
           setDefenderReady(false);
           socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
           socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'defender', readyState: false });
 
-          updatedState = { ...gameState, attackTargetId: id };
+          const updatedState: GameState = { ...gameState, attackTargetId: id };
           updateStateAndSync(updatedState);
         }
       }
     } else if (gameState.phase === 'fortify') {
       if (!gameState.fortifySourceId) {
         if (territory.ownerId === activePlayer.id && territory.armies > 1) {
-          updatedState = { ...gameState, fortifySourceId: id };
+          const updatedState: GameState = { ...gameState, fortifySourceId: id };
           updateStateAndSync(updatedState);
         }
       } else if (gameState.fortifySourceId === id) {
-        updatedState = { ...gameState, fortifySourceId: null };
+        const updatedState: GameState = { ...gameState, fortifySourceId: null };
         updateStateAndSync(updatedState);
       } else {
         const sourceId = gameState.fortifySourceId;
@@ -491,17 +496,18 @@ export default function RiskGamePage() {
       return;
     }
 
-    let updatedState = { ...gameState };
+    let updatedState: GameState = JSON.parse(JSON.stringify(gameState));
 
-    if (gameState.phase === 'reinforce') {
-      if (gameState.reinforcementsRemaining > 0) return;
+    if (updatedState.phase === 'reinforce') {
+      if (updatedState.reinforcementsRemaining > 0) return;
       updatedState.phase = 'attack';
-    } else if (gameState.phase === 'attack') {
+    } else if (updatedState.phase === 'attack') {
       updatedState.phase = 'fortify';
     } else {
-      const nextIndex = (gameState.activePlayerIndex + 1) % gameState.players.length;
-      const nextPlayer = gameState.players[nextIndex];
-      const nextTerritoriesCount = Object.values(gameState.territories).filter(t => t.ownerId === nextPlayer.id).length;
+      // تغییر چرخش نوبت
+      const nextIndex = (updatedState.activePlayerIndex + 1) % updatedState.players.length;
+      const nextPlayer = updatedState.players[nextIndex];
+      const nextTerritoriesCount = Object.values(updatedState.territories).filter(t => t.ownerId === nextPlayer.id).length;
       const newReinforcements = Math.max(3, Math.floor(nextTerritoriesCount / 3));
 
       updatedState = {
@@ -509,7 +515,7 @@ export default function RiskGamePage() {
         phase: 'reinforce',
         activePlayerIndex: nextIndex,
         reinforcementsRemaining: newReinforcements,
-        turnNumber: gameState.turnNumber + 1,
+        turnNumber: updatedState.turnNumber + 1,
         selectedTerritoryId: null,
         attackTargetId: null,
         fortifySourceId: null,
@@ -521,6 +527,7 @@ export default function RiskGamePage() {
     setDefenderReady(false);
     socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
     socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'defender', readyState: false });
+    
     updateStateAndSync(updatedState);
   };
 
@@ -659,7 +666,7 @@ export default function RiskGamePage() {
           message={gameState.diceResult.message} 
           onClose={() => { 
             setShowDiceModal(false); 
-            const resetState = { ...gameState, diceResult: null };
+            const resetState: GameState = JSON.parse(JSON.stringify({ ...gameState, diceResult: null }));
             setGameState(resetState);
             socket.emit('update_game_state', { roomCode: currentRoomCode, newState: resetState });
           }} 
