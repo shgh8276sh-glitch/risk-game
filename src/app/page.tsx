@@ -346,8 +346,8 @@ export default function RiskGamePage() {
         setDefenderReady(false);
         socket.emit('set_dice_status', { roomCode: currentRoomCode, attackerReady: false, defenderReady: false });
 
-        updatedState = { ...gameState, selectedTerritoryId: null, attackTargetId: null };
-        updateStateAndSync(updatedState);
+        const clearedState: GameState = { ...gameState, selectedTerritoryId: null, attackTargetId: null };
+        updateStateAndSync(clearedState);
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
@@ -476,7 +476,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه با عناوین دقیق درخواستی */}
+      {/* بنر نبرد تاس دوطرفه با عناوین درخواستی دقیق */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
@@ -488,7 +488,7 @@ export default function RiskGamePage() {
                   attackerReady ? 'bg-green-600 text-white shadow-inner scale-95 ring-2 ring-emerald-400' : 'bg-red-600 text-white hover:bg-red-500'
                 }`}
               >
-                {attackerReady ? 'پرتاب تاس مهاجم (باید شد - کلیک برای لغو)' : 'پرتاب تاس مهاجم'}
+                پرتاب تاس مهاجم
               </button>
             )}
             {isDefender && (
@@ -498,7 +498,7 @@ export default function RiskGamePage() {
                   defenderReady ? 'bg-green-600 text-white shadow-inner scale-95 ring-2 ring-emerald-400' : 'bg-blue-600 text-white hover:bg-blue-500'
                 }`}
               >
-                {defenderReady ? 'پرتاب تاس مدافع (باید شد - کلیک برای لغو)' : 'پرتاب تاس مدافع'}
+                پرتاب تاس مدافع
               </button>
             )}
             {!isAttacker && !isDefender && (

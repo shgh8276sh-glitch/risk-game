@@ -9,8 +9,8 @@ app.use(cors());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
-  pingTimeout: 180000,
-  pingInterval: 25000,
+  pingTimeout: 60000,
+  pingInterval: 20000,
 });
 
 const rooms = {};
@@ -106,7 +106,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت وضعیت تایید و قفل شدن تاس‌ها با منطق AND
+  // مدیریت دقیق و سریع وضعیت تاس‌ها و اجرای خودکار AND
   socket.on('set_dice_status', ({ roomCode, attackerReady, defenderReady }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
@@ -158,7 +158,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // همگام‌سازی کامل وضعیت بازی و لغو حمله در همه صفحات
+  // همگام‌سازی کامل لغو حمله و وضعیت بازی برای تمام کلاینت‌ها بدون تأخیر
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
@@ -178,5 +178,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور روی پورت ${PORT} فعال است.`);
+  console.log(`سرور بهینه روی پورت ${PORT} فعال است.`);
 });
