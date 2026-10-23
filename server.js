@@ -61,7 +61,7 @@ io.on('connection', (socket) => {
 
   socket.on('join_room', ({ username, playerId, roomCode }, callback) => {
     const room = rooms[roomCode];
-    if (!room) return callback({ success: false, message: 'روم مورد نظر یافت نشد!' });
+    if (!room) return callback({ success: false, message: 'روم مورد نظر یافت شرط نشد!' });
 
     socket.join(roomCode);
     let existingPlayer = room.players.find(p => p.playerId === playerId || p.name === username);
@@ -84,7 +84,7 @@ io.on('connection', (socket) => {
       if (isHost) room.hostPlayerId = playerId;
     }
 
-    callback({ success: true, roomCode, players: room.players, gameState: room.gameState });
+    callback({ success: true, roomCode, players: room.players, gameState: room.gameState, attackerReady: room.attackerReady, defenderReady: room.defenderReady });
     io.in(roomCode).emit('room_updated', { players: room.players });
   });
 
@@ -98,18 +98,18 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت صریح و مقتدرانه وضعیت تایید تاس‌ها
-  socket.on('set_dice_ready', ({ roomCode, isAttacker, isReady }) => {
+  // مدیریت جداگانه قفل شدن دکمه‌های تایید هر شخص
+  socket.on('toggle_dice_lock', ({ roomCode, isAttacker }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
 
     if (isAttacker) {
-      room.attackerReady = isReady;
+      room.attackerReady = !room.attackerReady;
     } else {
-      room.defenderReady = isReady;
+      room.defenderReady = !room.defenderReady;
     }
 
-    // بررسی شرط AND دقیق
+    // بررسی شرط AND: اگر هر دو قفل (تایید) کرده بودند، تاس ریخته شود
     if (room.attackerReady && room.defenderReady) {
       const state = room.gameState;
       if (state.selectedTerritoryId && state.attackTargetId) {
@@ -141,13 +141,14 @@ io.on('connection', (socket) => {
         }
       }
 
-      // ریسِت کردن وضعیت آمادگی برای نبرد بعدی
+      // ریست وضعیت قفل‌ها پس از ریخته شدن تاس
       room.attackerReady = false;
       room.defenderReady = false;
 
       io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
       io.in(roomCode).emit('game_state_updated', state);
     } else {
+      // ارسال وضعیت جدید قفل‌ها به همه تا دکمه هرکس آپدیت شود
       io.in(roomCode).emit('dice_ready_updated', {
         attackerReady: room.attackerReady,
         defenderReady: room.defenderReady,
