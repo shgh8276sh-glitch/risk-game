@@ -17,7 +17,6 @@ export default function RiskGamePage() {
   const [showDiceModal, setShowDiceModal] = useState<boolean>(false);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
 
-  // وضعیت‌های مربوط به مدال انتخاب تعداد نیرو برای جابجایی (Fortify)
   const [showFortifyModal, setShowFortifyModal] = useState<boolean>(false);
   const [fortifyTargetId, setFortifyTargetId] = useState<string | null>(null);
   const [fortifyAmount, setFortifyAmount] = useState<number>(1);
@@ -32,6 +31,9 @@ export default function RiskGamePage() {
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  const [attackerReady, setAttackerReady] = useState<boolean>(false);
+  const [defenderReady, setDefenderReady] = useState<boolean>(false);
 
   const getOrCreatePlayerId = () => {
     let pid = localStorage.getItem('risk_player_id');
@@ -81,14 +83,26 @@ export default function RiskGamePage() {
 
     socket.on('game_started', (initialState) => {
       setGameState(initialState);
+      setAttackerReady(false);
+      setDefenderReady(false);
       setInLobby(false);
     });
 
+    // دریافت آپدیت‌های زنده نقشه و وضعیت بازی از سرور برای همگام‌سازی همه کلاینت‌ها
     socket.on('game_state_updated', (newState) => {
       setGameState(newState);
+      if (!newState.attackTargetId || !newState.selectedTerritoryId) {
+        setAttackerReady(false);
+        setDefenderReady(false);
+      }
       if (newState.diceResult) {
         setShowDiceModal(true);
       }
+    });
+
+    socket.on('dice_ready_updated', ({ attackerReady: aReady, defenderReady: dReady }) => {
+      setAttackerReady(aReady);
+      setDefenderReady(dReady);
     });
 
     return () => {
@@ -96,6 +110,7 @@ export default function RiskGamePage() {
       socket.off('room_updated');
       socket.off('game_started');
       socket.off('game_state_updated');
+      socket.off('dice_ready_updated');
     };
   }, []);
 
@@ -258,6 +273,9 @@ export default function RiskGamePage() {
   const attackerPlayer = attackerTerritory ? gameState.players.find(p => p.id === attackerTerritory.ownerId) : null;
   const defenderPlayer = defenderTerritory ? gameState.players.find(p => p.id === defenderTerritory.ownerId) : null;
 
+  const isAttacker = attackerPlayer?.name === username;
+  const isDefender = defenderPlayer?.name === username;
+
   const updateStateAndSync = (newState: GameState) => {
     setGameState(newState);
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
@@ -286,6 +304,11 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'attack') {
+      setAttackerReady(false);
+      setDefenderReady(false);
+      socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
+      socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'defender', readyState: false });
+
       const newState: GameState = {
         ...gameState,
         selectedTerritoryId: null,
@@ -302,7 +325,6 @@ export default function RiskGamePage() {
     }
   };
 
-  // الگوریتم بررسی اتصال مسیر (BFS) برای جابجایی نیرو بین هر دو قلمروی پیوسته تحت مالکیت بازیکن
   const checkFortifyPath = (startId: string, targetId: string, ownerId: string): boolean => {
     if (startId === targetId) return false;
     const queue: string[] = [startId];
@@ -348,11 +370,21 @@ export default function RiskGamePage() {
           updateStateAndSync(updatedState);
         }
       } else if (gameState.selectedTerritoryId === id) {
+        setAttackerReady(false);
+        setDefenderReady(false);
+        socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
+        socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'defender', readyState: false });
+
         const clearedState: GameState = { ...gameState, selectedTerritoryId: null, attackTargetId: null };
         updateStateAndSync(clearedState);
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
+          setAttackerReady(false);
+          setDefenderReady(false);
+          socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
+          socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'defender', readyState: false });
+
           updatedState = { ...gameState, attackTargetId: id };
           updateStateAndSync(updatedState);
         }
@@ -369,7 +401,6 @@ export default function RiskGamePage() {
       } else {
         const sourceId = gameState.fortifySourceId;
         if (territory.ownerId === activePlayer.id) {
-          // بررسی وجود مسیر متصل (Pathfinding) بین مبدأ و مقصد
           if (checkFortifyPath(sourceId, id, activePlayer.id)) {
             setFortifyTargetId(id);
             setFortifyAmount(1);
@@ -380,6 +411,20 @@ export default function RiskGamePage() {
         }
       }
     }
+  };
+
+  const handleToggleDiceReady = (roleIsAttacker: boolean) => {
+    const currentReady = roleIsAttacker ? attackerReady : defenderReady;
+    const nextReady = !currentReady;
+
+    if (roleIsAttacker) setAttackerReady(nextReady);
+    else setDefenderReady(nextReady);
+
+    socket.emit('set_dice_status', {
+      roomCode: currentRoomCode,
+      role: roleIsAttacker ? 'attacker' : 'defender',
+      readyState: nextReady,
+    });
   };
 
   const executeFortifyTransfer = () => {
@@ -463,6 +508,10 @@ export default function RiskGamePage() {
       };
     }
 
+    setAttackerReady(false);
+    setDefenderReady(false);
+    socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
+    socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'defender', readyState: false });
     updateStateAndSync(updatedState);
   };
 
@@ -514,7 +563,6 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* مودال انتخاب تعداد نیرو برای جابجایی (Fortify Modal) */}
       {showFortifyModal && gameState.fortifySourceId && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-[#2b1e16] border-2 border-amber-600 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
@@ -539,10 +587,36 @@ export default function RiskGamePage() {
         </div>
       )}
 
-      {/* بنر نبرد حمله */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
-          <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}!</span>
+          <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
+          <div className="flex gap-2">
+            {isAttacker && (
+              <button
+                onClick={() => handleToggleDiceReady(true)}
+                className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer transition-all ${
+                  attackerReady ? 'bg-green-600 text-white shadow-inner scale-95 ring-2 ring-emerald-400' : 'bg-red-600 text-white hover:bg-red-500'
+                }`}
+              >
+                پرتاب تاس مهاجم
+              </button>
+            )}
+            {isDefender && (
+              <button
+                onClick={() => handleToggleDiceReady(false)}
+                className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer transition-all ${
+                  defenderReady ? 'bg-green-600 text-white shadow-inner scale-95 ring-2 ring-emerald-400' : 'bg-blue-600 text-white hover:bg-blue-500'
+                }`}
+              >
+                پرتاب تاس مدافع
+              </button>
+            )}
+            {!isAttacker && !isDefender && (
+              <span className="text-xs text-yellow-300 font-bold">
+                مهاجم: {attackerReady ? '✅ تایید' : '⏳ منتظر'} | مدافع: {defenderReady ? '✅ تایید' : '⏳ منتظر'}
+              </span>
+            )}
+          </div>
         </div>
       )}
 

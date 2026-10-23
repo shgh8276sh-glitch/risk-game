@@ -20,6 +20,27 @@ function generateRoomCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+function resolveCombat(attackerArmies, defenderArmies) {
+  const attackerDiceCount = Math.min(attackerArmies - 1, 3);
+  const defenderDiceCount = Math.min(defenderArmies, 2);
+
+  const attackerRolls = Array.from({ length: attackerDiceCount }, () => Math.floor(Math.random() * 6) + 1).sort((a, b) => b - a);
+  const defenderRolls = Array.from({ length: defenderDiceCount }, () => Math.floor(Math.random() * 6) + 1).sort((a, b) => b - a);
+
+  let attackerLosses = 0;
+  let defenderLosses = 0;
+
+  for (let i = 0; i < Math.min(attackerRolls.length, defenderRolls.length); i++) {
+    if (attackerRolls[i] > defenderRolls[i]) {
+      defenderLosses++;
+    } else {
+      attackerLosses++;
+    }
+  }
+
+  return { attackerRolls, defenderRolls, attackerLosses, defenderLosses };
+}
+
 io.on('connection', (socket) => {
   socket.on('create_room', ({ username, playerId, maxPlayers, adminSecret }, callback) => {
     if (adminSecret !== ADMIN_SECRET) {
@@ -81,7 +102,7 @@ io.on('connection', (socket) => {
   socket.on('request_room_players', ({ roomCode }) => {
     const room = rooms[roomCode];
     if (room) {
-      socket.emit('room_updated', { players: room.players });
+      io.in(roomCode).emit('room_updated', { players: room.players });
     }
   });
 
@@ -96,11 +117,70 @@ io.on('connection', (socket) => {
     }
   });
 
+  // مدیریت کامل وضعیت تاس و حل نبرد
+  socket.on('set_dice_status', ({ roomCode, role, readyState }) => {
+    const room = rooms[roomCode];
+    if (!room || !room.gameState) return;
+
+    if (role === 'attacker') room.attackerReady = readyState;
+    if (role === 'defender') room.defenderReady = readyState;
+
+    io.in(roomCode).emit('dice_ready_updated', {
+      attackerReady: room.attackerReady,
+      defenderReady: room.defenderReady,
+    });
+
+    if (room.attackerReady && room.defenderReady) {
+      const state = room.gameState;
+      if (state.selectedTerritoryId && state.attackTargetId) {
+        const attacker = state.territories[state.selectedTerritoryId];
+        const defender = state.territories[state.attackTargetId];
+
+        if (attacker && defender) {
+          const combat = resolveCombat(attacker.armies, defender.armies);
+          const newAttackerArmies = attacker.armies - combat.attackerLosses;
+          const newDefenderArmies = defender.armies - combat.defenderLosses;
+
+          let newTerritories = { ...state.territories };
+          if (newDefenderArmies <= 0) {
+            newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - 1 };
+            newTerritories[state.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: 1 };
+          } else {
+            newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
+            newTerritories[state.attackTargetId] = { id: defender.id, ownerId: defender.ownerId, armies: newDefenderArmies };
+          }
+
+          state.territories = newTerritories;
+          state.selectedTerritoryId = null;
+          state.attackTargetId = null;
+          state.diceResult = {
+            attacker: combat.attackerRolls,
+            defender: combat.defenderRolls,
+            message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد!' : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
+          };
+        }
+      }
+
+      room.attackerReady = false;
+      room.defenderReady = false;
+
+      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
+      io.in(roomCode).emit('game_state_updated', state);
+    }
+  });
+
+  // انتشار سراسری تغییرات نقشه و وضعیت بازی برای همه بازیکنان حاضر در روم
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
 
     room.gameState = newState;
+    if (!newState.attackTargetId || !newState.selectedTerritoryId) {
+      room.attackerReady = false;
+      room.defenderReady = false;
+      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
+    }
+
     io.in(roomCode).emit('game_state_updated', newState);
   });
 
