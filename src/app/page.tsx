@@ -17,6 +17,11 @@ export default function RiskGamePage() {
   const [showDiceModal, setShowDiceModal] = useState<boolean>(false);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
 
+  // وضعیت‌های مربوط به مدال انتخاب تعداد نیرو برای جابجایی (Fortify)
+  const [showFortifyModal, setShowFortifyModal] = useState<boolean>(false);
+  const [fortifyTargetId, setFortifyTargetId] = useState<string | null>(null);
+  const [fortifyAmount, setFortifyAmount] = useState<number>(1);
+
   const [inLobby, setInLobby] = useState<boolean>(true);
   const [username, setUsername] = useState<string>('');
   const [roomCodeInput, setRoomCodeInput] = useState<string>('');
@@ -297,6 +302,30 @@ export default function RiskGamePage() {
     }
   };
 
+  // الگوریتم بررسی اتصال مسیر (BFS) برای جابجایی نیرو بین هر دو قلمروی پیوسته تحت مالکیت بازیکن
+  const checkFortifyPath = (startId: string, targetId: string, ownerId: string): boolean => {
+    if (startId === targetId) return false;
+    const queue: string[] = [startId];
+    const visited: Set<string> = new Set([startId]);
+
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      if (currentId === targetId) return true;
+
+      const territoryData = TERRITORIES.find(t => t.id === currentId);
+      if (territoryData) {
+        for (const neighborId of territoryData.neighbors) {
+          const neighborTerritory = gameState.territories[neighborId];
+          if (neighborTerritory && neighborTerritory.ownerId === ownerId && !visited.has(neighborId)) {
+            visited.add(neighborId);
+            queue.push(neighborId);
+          }
+        }
+      }
+    }
+    return false;
+  };
+
   const handleTerritoryClick = (id: string) => {
     if (!isMyTurn) return;
     const territory = gameState.territories[id];
@@ -329,43 +358,55 @@ export default function RiskGamePage() {
         }
       }
     } else if (gameState.phase === 'fortify') {
-      // فاز جابجایی نیروها (Fortify)
       if (!gameState.fortifySourceId) {
         if (territory.ownerId === activePlayer.id && territory.armies > 1) {
           updatedState = { ...gameState, fortifySourceId: id };
           updateStateAndSync(updatedState);
         }
       } else if (gameState.fortifySourceId === id) {
-        // لغو انتخاب مبدأ جابجایی
         updatedState = { ...gameState, fortifySourceId: null };
         updateStateAndSync(updatedState);
       } else {
-        // انتخاب مقصد و انجام جابجایی نیروها بین دو قلمروی خودی
         const sourceId = gameState.fortifySourceId;
-        const sourceTerritory = gameState.territories[sourceId];
-        
         if (territory.ownerId === activePlayer.id) {
-          const sourceData = TERRITORIES.find(t => t.id === sourceId);
-          // بررسی همسایه بودن یا پیوستگی برای جابجایی
-          if (sourceData && sourceData.neighbors.includes(id)) {
-            const movingArmies = sourceTerritory.armies - 1;
-            const updatedTerritories = {
-              ...gameState.territories,
-              [sourceId]: { ...sourceTerritory, armies: 1 },
-              [id]: { ...territory, armies: territory.armies + movingArmies }
-            };
-            updatedState = {
-              ...gameState,
-              territories: updatedTerritories,
-              fortifySourceId: null,
-            };
-            updateStateAndSync(updatedState);
+          // بررسی وجود مسیر متصل (Pathfinding) بین مبدأ و مقصد
+          if (checkFortifyPath(sourceId, id, activePlayer.id)) {
+            setFortifyTargetId(id);
+            setFortifyAmount(1);
+            setShowFortifyModal(true);
           } else {
-            alert('قلمروهای انتخابی برای جابجایی باید به هم متصل (همسایه) باشند.');
+            alert('قلمروهای انتخابی از طریق مسیرهای تحت کنترل شما به یکدیگر متصل نیستند.');
           }
         }
       }
     }
+  };
+
+  const executeFortifyTransfer = () => {
+    if (!gameState.fortifySourceId || !fortifyTargetId) return;
+
+    const sourceTerritory = gameState.territories[gameState.fortifySourceId];
+    const targetTerritory = gameState.territories[fortifyTargetId];
+
+    if (sourceTerritory && targetTerritory) {
+      const transferCount = Math.max(1, Math.min(fortifyAmount, sourceTerritory.armies - 1));
+
+      const updatedTerritories = {
+        ...gameState.territories,
+        [gameState.fortifySourceId]: { ...sourceTerritory, armies: sourceTerritory.armies - transferCount },
+        [fortifyTargetId]: { ...targetTerritory, armies: targetTerritory.armies + transferCount }
+      };
+
+      const newState: GameState = {
+        ...gameState,
+        territories: updatedTerritories,
+        fortifySourceId: null,
+      };
+      updateStateAndSync(newState);
+    }
+
+    setShowFortifyModal(false);
+    setFortifyTargetId(null);
   };
 
   const handleTradeCards = (selectedCards: Card[], bonusArmies: number) => {
@@ -440,7 +481,7 @@ export default function RiskGamePage() {
           <p className="text-xs text-emerald-400 font-bold mt-1">
             مرحله نوبت: {gameState.phase === 'reinforce' ? '۱. تقویت نیروها (گذاشتن سرباز)' : gameState.phase === 'attack' ? '۲. فاز حمله' : '۳. جابجایی نیروها'}
             {gameState.phase === 'reinforce' && ` | سرباز باقی‌مانده: ${gameState.reinforcementsRemaining}`}
-            {gameState.phase === 'fortify' && gameState.fortifySourceId && ' | قلمروی مبدأ انتخاب شد، مقصد را انتخاب کنید'}
+            {gameState.phase === 'fortify' && gameState.fortifySourceId && ' | مبدأ انتخاب شد، قلمروی مقصد را انتخاب کنید'}
           </p>
         </div>
 
@@ -473,7 +514,32 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر فازها */}
+      {/* مودال انتخاب تعداد نیرو برای جابجایی (Fortify Modal) */}
+      {showFortifyModal && gameState.fortifySourceId && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#2b1e16] border-2 border-amber-600 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-amber-400">📦 جابجایی نیروها</h3>
+            <p className="text-xs text-amber-200">چندتا از نیروهای مبدأ را می‌خواهید جابجا کنید؟</p>
+            <div className="flex items-center justify-center gap-4 my-4">
+              <input 
+                type="range" 
+                min={1} 
+                max={Math.max(1, (gameState.territories[gameState.fortifySourceId]?.armies || 2) - 1)} 
+                value={fortifyAmount} 
+                onChange={(e) => setFortifyAmount(parseInt(e.target.value))}
+                className="w-full accent-amber-500 cursor-pointer"
+              />
+              <span className="text-xl font-bold font-mono text-emerald-400 bg-[#1a120b] px-4 py-1.5 rounded-xl border border-[#8c653d]">{fortifyAmount}</span>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={executeFortifyTransfer} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs cursor-pointer">تایید جابجایی</button>
+              <button onClick={() => setShowFortifyModal(false)} className="flex-1 py-2.5 bg-gray-700 hover:bg-gray-600 text-white rounded-xl font-bold text-xs cursor-pointer">انصراف</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* بنر نبرد حمله */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}!</span>
