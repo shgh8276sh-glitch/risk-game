@@ -328,6 +328,43 @@ export default function RiskGamePage() {
           updateStateAndSync(updatedState);
         }
       }
+    } else if (gameState.phase === 'fortify') {
+      // فاز جابجایی نیروها (Fortify)
+      if (!gameState.fortifySourceId) {
+        if (territory.ownerId === activePlayer.id && territory.armies > 1) {
+          updatedState = { ...gameState, fortifySourceId: id };
+          updateStateAndSync(updatedState);
+        }
+      } else if (gameState.fortifySourceId === id) {
+        // لغو انتخاب مبدأ جابجایی
+        updatedState = { ...gameState, fortifySourceId: null };
+        updateStateAndSync(updatedState);
+      } else {
+        // انتخاب مقصد و انجام جابجایی نیروها بین دو قلمروی خودی
+        const sourceId = gameState.fortifySourceId;
+        const sourceTerritory = gameState.territories[sourceId];
+        
+        if (territory.ownerId === activePlayer.id) {
+          const sourceData = TERRITORIES.find(t => t.id === sourceId);
+          // بررسی همسایه بودن یا پیوستگی برای جابجایی
+          if (sourceData && sourceData.neighbors.includes(id)) {
+            const movingArmies = sourceTerritory.armies - 1;
+            const updatedTerritories = {
+              ...gameState.territories,
+              [sourceId]: { ...sourceTerritory, armies: 1 },
+              [id]: { ...territory, armies: territory.armies + movingArmies }
+            };
+            updatedState = {
+              ...gameState,
+              territories: updatedTerritories,
+              fortifySourceId: null,
+            };
+            updateStateAndSync(updatedState);
+          } else {
+            alert('قلمروهای انتخابی برای جابجایی باید به هم متصل (همسایه) باشند.');
+          }
+        }
+      }
     }
   };
 
@@ -351,11 +388,9 @@ export default function RiskGamePage() {
     setShowCardModal(false);
   };
 
-  // بررسی جلوگیری از رفتن به مرحله بعد در صورت انتخاب حمله
   const nextPhaseOrTurn = () => {
     if (!isMyTurn) return;
 
-    // اگر در فاز حمله هستیم و کشوری برای حمله انتخاب شده است، اجازه رفتن به مرحله بعد را نده
     if (gameState.phase === 'attack' && (gameState.selectedTerritoryId || gameState.attackTargetId)) {
       alert('⚠️ ابتدا باید حمله انتخاب‌شده را لغو کنید و سپس به مرحله بعد بروید.');
       return;
@@ -382,6 +417,7 @@ export default function RiskGamePage() {
         turnNumber: gameState.turnNumber + 1,
         selectedTerritoryId: null,
         attackTargetId: null,
+        fortifySourceId: null,
         reinforcementHistory: [],
       };
     }
@@ -404,6 +440,7 @@ export default function RiskGamePage() {
           <p className="text-xs text-emerald-400 font-bold mt-1">
             مرحله نوبت: {gameState.phase === 'reinforce' ? '۱. تقویت نیروها (گذاشتن سرباز)' : gameState.phase === 'attack' ? '۲. فاز حمله' : '۳. جابجایی نیروها'}
             {gameState.phase === 'reinforce' && ` | سرباز باقی‌مانده: ${gameState.reinforcementsRemaining}`}
+            {gameState.phase === 'fortify' && gameState.fortifySourceId && ' | قلمروی مبدأ انتخاب شد، مقصد را انتخاب کنید'}
           </p>
         </div>
 
@@ -436,7 +473,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد حمله */}
+      {/* بنر فازها */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}!</span>

@@ -101,12 +101,6 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     room.gameState = newState;
-    if (!newState.attackTargetId || !newState.selectedTerritoryId) {
-      room.attackerReady = false;
-      room.defenderReady = false;
-      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
-    }
-
     io.in(roomCode).emit('game_state_updated', newState);
   });
 
