@@ -277,6 +277,7 @@ export default function RiskGamePage() {
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
   };
 
+  // لغو حمله کاملاً سراسری و همگام در تمام صفحات
   const handleUndo = () => {
     if (!isMyTurn) return;
 
@@ -362,7 +363,7 @@ export default function RiskGamePage() {
     }
   };
 
-  // ارسال مستقیم و همگام‌سازی وضعیت جدید به سرور با محاسبه دقیق متغیرها
+  // کلیک روی پرتاب تاس (تایید/لغو محلی و ارسال به سرور)
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
     const nextAttackerReady = roleIsAttacker ? !attackerReady : attackerReady;
     const nextDefenderReady = !roleIsAttacker ? !defenderReady : defenderReady;

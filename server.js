@@ -114,7 +114,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // اجرای دقیق شرط AND و محاسبه نبرد به محض آماده شدن هر دو طرف
+  // پردازش دقیق وضعیت تاس و شرط AND
   socket.on('set_dice_status', ({ roomCode, attackerReady, defenderReady }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
@@ -166,6 +166,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // مدیریت به‌روزرسانی وضعیت بازی و لغو حمله سراسری
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
