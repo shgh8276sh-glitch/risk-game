@@ -88,7 +88,6 @@ export default function RiskGamePage() {
       setInLobby(false);
     });
 
-    // دریافت آپدیت‌های زنده نقشه و وضعیت بازی از سرور برای همگام‌سازی همه کلاینت‌ها
     socket.on('game_state_updated', (newState) => {
       setGameState(newState);
       if (!newState.attackTargetId || !newState.selectedTerritoryId) {
@@ -281,6 +280,7 @@ export default function RiskGamePage() {
     socket.emit('update_game_state', { roomCode: currentRoomCode, newState });
   };
 
+  // لغو سراسری حمله و پاکسازی وضعیت تاس‌ها برای همه بازیکنان
   const handleUndo = () => {
     if (!isMyTurn) return;
 
@@ -427,6 +427,7 @@ export default function RiskGamePage() {
     });
   };
 
+  // همگام‌سازی لحظه‌ای جابجایی نیروها برای تمام بازیکنان روی نقشه
   const executeFortifyTransfer = () => {
     if (!gameState.fortifySourceId || !fortifyTargetId) return;
 

@@ -117,7 +117,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت کامل وضعیت تاس و حل نبرد
   socket.on('set_dice_status', ({ roomCode, role, readyState }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
@@ -169,7 +168,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // انتشار سراسری تغییرات نقشه و وضعیت بازی برای همه بازیکنان حاضر در روم
+  // همگام‌سازی صددرصدی و سراسری وضعیت نقشه و بازی برای همه کلاینت‌ها
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
