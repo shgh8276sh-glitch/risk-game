@@ -52,6 +52,8 @@ export default function RiskGamePage() {
           setPlayersList(response.players);
           if (response.gameState) {
             setGameState(response.gameState);
+            setAttackerReady(response.attackerReady || false);
+            setDefenderReady(response.defenderReady || false);
             setInLobby(false);
           }
         }
@@ -62,7 +64,6 @@ export default function RiskGamePage() {
   useEffect(() => {
     reinitializeSocketConnection();
 
-    // مدیریت بازگشت به تب کروم برای اتصال مجدد و همگام‌سازی فوری
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         reinitializeSocketConnection();
@@ -302,6 +303,10 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'attack') {
+      setAttackerReady(false);
+      setDefenderReady(false);
+      socket.emit('set_dice_status', { roomCode: currentRoomCode, attackerReady: false, defenderReady: false });
+
       const newState: GameState = {
         ...gameState,
         selectedTerritoryId: null,
@@ -340,16 +345,39 @@ export default function RiskGamePage() {
           updateStateAndSync(updatedState);
         }
       } else if (gameState.selectedTerritoryId === id) {
+        setAttackerReady(false);
+        setDefenderReady(false);
+        socket.emit('set_dice_status', { roomCode: currentRoomCode, attackerReady: false, defenderReady: false });
+
         const clearedState: GameState = { ...gameState, selectedTerritoryId: null, attackTargetId: null };
         updateStateAndSync(clearedState);
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         if (selected && selected.neighbors.includes(id) && territory.ownerId !== activePlayer.id) {
+          setAttackerReady(false);
+          setDefenderReady(false);
+          socket.emit('set_dice_status', { roomCode: currentRoomCode, attackerReady: false, defenderReady: false });
+
           updatedState = { ...gameState, attackTargetId: id };
           updateStateAndSync(updatedState);
         }
       }
     }
+  };
+
+  // مدیریت کلیک برای پرتاب تاس مهاجم و مدافع (سبز شدن و ارسال به سرور)
+  const handleToggleDiceReady = (roleIsAttacker: boolean) => {
+    const nextAttackerReady = roleIsAttacker ? !attackerReady : attackerReady;
+    const nextDefenderReady = !roleIsAttacker ? !defenderReady : defenderReady;
+
+    if (roleIsAttacker) setAttackerReady(nextAttackerReady);
+    else setDefenderReady(nextDefenderReady);
+
+    socket.emit('set_dice_status', {
+      roomCode: currentRoomCode,
+      attackerReady: nextAttackerReady,
+      defenderReady: nextDefenderReady,
+    });
   };
 
   const handleTradeCards = (selectedCards: Card[], bonusArmies: number) => {
@@ -399,6 +427,9 @@ export default function RiskGamePage() {
       };
     }
 
+    setAttackerReady(false);
+    setDefenderReady(false);
+    socket.emit('set_dice_status', { roomCode: currentRoomCode, attackerReady: false, defenderReady: false });
     updateStateAndSync(updatedState);
   };
 
@@ -449,10 +480,37 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد حمله */}
+      {/* بنر نبرد حمله و پرتاب تاس مهاجم و مدافع */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
-          <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}!</span>
+          <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
+          <div className="flex gap-2">
+            {isAttacker && (
+              <button
+                onClick={() => handleToggleDiceReady(true)}
+                className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer transition-all ${
+                  attackerReady ? 'bg-green-600 text-white shadow-inner scale-95 ring-2 ring-emerald-400' : 'bg-red-600 text-white hover:bg-red-500'
+                }`}
+              >
+                پرتاب تاس مهاجم
+              </button>
+            )}
+            {isDefender && (
+              <button
+                onClick={() => handleToggleDiceReady(false)}
+                className={`px-4 py-2 text-xs font-bold rounded-xl cursor-pointer transition-all ${
+                  defenderReady ? 'bg-green-600 text-white shadow-inner scale-95 ring-2 ring-emerald-400' : 'bg-blue-600 text-white hover:bg-blue-500'
+                }`}
+              >
+                پرتاب تاس مدافع
+              </button>
+            )}
+            {!isAttacker && !isDefender && (
+              <span className="text-xs text-yellow-300 font-bold">
+                مهاجم: {attackerReady ? '✅ تایید' : '⏳ منتظر'} | مدافع: {defenderReady ? '✅ تایید' : '⏳ منتظر'}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
