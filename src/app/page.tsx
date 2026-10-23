@@ -29,7 +29,7 @@ export default function RiskGamePage() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // وضعیت‌های محلی برای تاس دوطرفه
+  // وضعیت‌های محلی برای تأس دوطرفه
   const [attackerReady, setAttackerReady] = useState<boolean>(false);
   const [defenderReady, setDefenderReady] = useState<boolean>(false);
 
@@ -296,7 +296,6 @@ export default function RiskGamePage() {
       };
       updateStateAndSync(newState);
     } else if (gameState.phase === 'attack') {
-      // لغو کامل حمله و ریست وضعیت تاس‌ها برای همه
       setAttackerReady(false);
       setDefenderReady(false);
       socket.emit('toggle_dice_ready', { roomCode: currentRoomCode, isAttacker: true, isReady: false });
@@ -517,7 +516,7 @@ export default function RiskGamePage() {
         </div>
       </header>
 
-      {/* بنر نبرد تاس دوطرفه با وضعیت محلی و همگام‌سازی کامل */}
+      {/* بنر نبرد تأس دوطرفه */}
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}! هر دو باید تاس بزنند.</span>
@@ -573,7 +572,7 @@ export default function RiskGamePage() {
           attackerRolls={gameState.diceResult.attacker} 
           defenderRolls={gameState.diceResult.defender} 
           message={gameState.diceResult.message} 
-          onClose={() => { setShowDiceModal(false); setGameState({ ...gameState, diceResult: undefined }); }} 
+          onClose={() => { setShowDiceModal(false); setGameState({ ...gameState, diceResult: null }); }} 
         />
       )}
     </main>
