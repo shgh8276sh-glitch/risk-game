@@ -168,7 +168,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت متمرکز و سروری تغییر فاز و چرخش نوبت برای جلوگیری از هرگونه ناهماهنگی
+  // کنترل دقیق و استاندارد تعویض فاز و نوبت
   socket.on('next_phase_or_turn', ({ roomCode }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
@@ -180,7 +180,8 @@ io.on('connection', (socket) => {
       state.phase = 'attack';
     } else if (state.phase === 'attack') {
       state.phase = 'fortify';
-    } else {
+    } else if (state.phase === 'fortify') {
+      // رفتن به نوبت بازیکن بعدی
       const nextIndex = (state.activePlayerIndex + 1) % state.players.length;
       const nextPlayer = state.players[nextIndex];
       const nextTerritoriesCount = Object.values(state.territories).filter(t => t.ownerId === nextPlayer.id).length;
@@ -204,7 +205,6 @@ io.on('connection', (socket) => {
     io.in(roomCode).emit('game_state_updated', state);
   });
 
-  // انتشار سراسری تغییرات نقشه و وضعیت بازی
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;

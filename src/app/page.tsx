@@ -487,7 +487,6 @@ export default function RiskGamePage() {
     setShowCardModal(false);
   };
 
-  // ارسال درخواست تغییر فاز یا چرخش نوبت به سرور برای اجرای متمرکز و هماهنگ
   const nextPhaseOrTurn = () => {
     if (!isMyTurn) return;
 
@@ -497,6 +496,7 @@ export default function RiskGamePage() {
     }
 
     if (gameState.phase === 'reinforce' && gameState.reinforcementsRemaining > 0) {
+      alert('⚠️ هنوز سرباز برای قرار دادن روی نقشه دارید!');
       return;
     }
 
