@@ -92,7 +92,15 @@ io.on('connection', (socket) => {
       attackerReady: room.attackerReady, 
       defenderReady: room.defenderReady 
     });
+    
     io.in(roomCode).emit('room_updated', { players: room.players });
+  });
+
+  socket.on('request_room_players', ({ roomCode }) => {
+    const room = rooms[roomCode];
+    if (room) {
+      socket.emit('room_updated', { players: room.players });
+    }
   });
 
   socket.on('start_game', ({ roomCode, initialState }) => {
@@ -106,7 +114,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // مدیریت دقیق و سریع وضعیت تاس‌ها و اجرای خودکار AND
   socket.on('set_dice_status', ({ roomCode, attackerReady, defenderReady }) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState) return;
@@ -158,7 +165,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // همگام‌سازی کامل لغو حمله و وضعیت بازی برای تمام کلاینت‌ها بدون تأخیر
   socket.on('update_game_state', ({ roomCode, newState }) => {
     const room = rooms[roomCode];
     if (!room) return;
@@ -178,5 +184,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`سرور بهینه روی پورت ${PORT} فعال است.`);
+  console.log(`سرور روی پورت ${PORT} فعال است.`);
 });
