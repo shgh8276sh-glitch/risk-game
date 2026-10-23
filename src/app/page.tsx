@@ -10,11 +10,13 @@ import { GameState, Card } from '@/game/engine/state';
 import { TERRITORIES } from '@/game/data/territories';
 import { socket } from '@/game/socket';
 
+const getVersion = (s: any): number => (s && typeof s.version === 'number' ? s.version : 0);
+
 export default function RiskGamePage() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [showMissionModal, setShowMissionModal] = useState<boolean>(false);
   const [showCardModal, setShowCardModal] = useState<boolean>(false);
-  const [showDiceModal, setShowDiceModal] = useState<boolean>(false);
+  const [dismissedDiceId, setDismissedDiceId] = useState<number | null>(null);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
 
   const [showFortifyModal, setShowFortifyModal] = useState<boolean>(false);
@@ -31,6 +33,7 @@ export default function RiskGamePage() {
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isAdvancing, setIsAdvancing] = useState<boolean>(false);
 
   const [attackerReady, setAttackerReady] = useState<boolean>(false);
   const [defenderReady, setDefenderReady] = useState<boolean>(false);
@@ -44,23 +47,54 @@ export default function RiskGamePage() {
     return pid;
   };
 
-  const reinitializeSocketConnection = () => {
-    if (!socket.connected) socket.connect();
+  // اعمال state دریافتی از سرور؛ state با نسخه‌ی قدیمی‌تر از نسخه‌ی محلی نادیده گرفته می‌شود
+  const applyServerState = (incoming: any, force: boolean = false) => {
+    if (!incoming) return;
+    const cloned: GameState = JSON.parse(JSON.stringify(incoming));
+    setGameState((prev) => {
+      if (!force && prev && getVersion(incoming) < getVersion(prev)) return prev;
+      return cloned;
+    });
+    if (!incoming.attackTargetId || !incoming.selectedTerritoryId) {
+      setAttackerReady(false);
+      setDefenderReady(false);
+    }
+  };
+
+  // ورود مجدد به روم (بعد از ریلود، قطع اتصال یا برگشت به تب)
+  const rejoinRoom = () => {
     const savedUsername = localStorage.getItem('risk_username');
     const savedRoomCode = localStorage.getItem('risk_roomCode');
     const playerId = getOrCreatePlayerId();
+    if (!savedRoomCode || !savedUsername) return;
 
-    if (savedRoomCode && savedUsername) {
-      socket.emit('join_room', { username: savedUsername, playerId, roomCode: savedRoomCode }, (response: any) => {
-        if (response && response.success) {
-          setPlayersList(response.players);
-          if (response.gameState) {
-            setGameState(response.gameState);
-            setInLobby(false);
-          }
+    socket.emit('join_room', { username: savedUsername, playerId, roomCode: savedRoomCode }, (response: any) => {
+      if (response && response.success) {
+        setUsername(savedUsername);
+        setCurrentRoomCode(response.roomCode || savedRoomCode);
+        setPlayersList(response.players);
+        const me = response.players.find((p: any) => p.playerId === playerId || p.name === savedUsername);
+        if (me) setIsHost(me.isHost);
+        setAttackerReady(!!response.attackerReady);
+        setDefenderReady(!!response.defenderReady);
+        if (response.gameState) {
+          // نتیجه‌ی تاسِ قدیمی بعد از ریلود دوباره نمایش داده نشود
+          setDismissedDiceId(response.gameState.diceResult?.id ?? null);
+          applyServerState(response.gameState, true);
+          setInLobby(false);
         }
-      });
+      } else if (response && response.message === 'روم مورد نظر یافت نشد!') {
+        localStorage.removeItem('risk_roomCode');
+      }
+    });
+  };
+
+  const reinitializeSocketConnection = () => {
+    if (!socket.connected) {
+      socket.connect(); // بعد از اتصال، رویداد 'connect' ورود مجدد را انجام می‌دهد
+      return;
     }
+    rejoinRoom();
   };
 
   useEffect(() => {
@@ -73,6 +107,9 @@ export default function RiskGamePage() {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
+    // با هر اتصال (اولیه یا بعد از قطع شدن) دوباره وارد روم می‌شویم
+    socket.on('connect', rejoinRoom);
+
     socket.on('room_updated', ({ players }) => {
       setPlayersList(players);
       const pid = getOrCreatePlayerId();
@@ -82,21 +119,15 @@ export default function RiskGamePage() {
     });
 
     socket.on('game_started', (initialState) => {
-      setGameState(initialState);
+      applyServerState(initialState, true);
+      setDismissedDiceId(null);
       setAttackerReady(false);
       setDefenderReady(false);
       setInLobby(false);
     });
 
     socket.on('game_state_updated', (newState) => {
-      setGameState(JSON.parse(JSON.stringify(newState)));
-      if (!newState.attackTargetId || !newState.selectedTerritoryId) {
-        setAttackerReady(false);
-        setDefenderReady(false);
-      }
-      if (newState.diceResult) {
-        setShowDiceModal(true);
-      }
+      applyServerState(newState);
     });
 
     socket.on('dice_ready_updated', ({ attackerReady: aReady, defenderReady: dReady }) => {
@@ -106,11 +137,13 @@ export default function RiskGamePage() {
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      socket.off('connect', rejoinRoom);
       socket.off('room_updated');
       socket.off('game_started');
       socket.off('game_state_updated');
       socket.off('dice_ready_updated');
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleCreateRoom = () => {
@@ -153,7 +186,8 @@ export default function RiskGamePage() {
         localStorage.setItem('risk_username', username);
         localStorage.setItem('risk_roomCode', response.roomCode);
         if (response.gameState) {
-          setGameState(response.gameState);
+          setDismissedDiceId(response.gameState.diceResult?.id ?? null);
+          applyServerState(response.gameState, true);
           setInLobby(false);
         }
       } else {
@@ -235,7 +269,7 @@ export default function RiskGamePage() {
           </div>
 
           <p className="text-3xl font-mono font-extrabold text-emerald-400 tracking-widest">{currentRoomCode}</p>
-          
+
           <div className="space-y-2 text-right bg-[#1a120b] p-4 rounded-xl border border-[#8c653d]">
             <p className="text-xs font-bold text-amber-400 mb-2">بازیکنان حاضر در روم ({playersList.length} نفر):</p>
             {playersList.map((p, idx) => (
@@ -275,10 +309,26 @@ export default function RiskGamePage() {
   const isAttacker = attackerPlayer?.name === username;
   const isDefender = defenderPlayer?.name === username;
 
+  // نمایش مودال تاس: هر نتیجه (با id یکتا) فقط یک‌بار برای هر کلاینت و بسته شدنش کاملاً محلی است
+  const currentDiceId: number | null = (gameState as any).diceResult?.id ?? null;
+  const showDiceModal = !!gameState.diceResult && currentDiceId !== dismissedDiceId;
+
+  // تغییر نقشه/سرباز/کارت توسط بازیکن نوبت‌دار.
+  // فازها و نوبت هرگز از اینجا تغییر نمی‌کنند؛ سرور آن‌ها را نادیده می‌گیرد.
   const updateStateAndSync = (newState: GameState) => {
-    const clonedState: GameState = JSON.parse(JSON.stringify(newState));
+    const baseVersion = getVersion(gameState);
+    const clonedState: any = JSON.parse(JSON.stringify(newState));
+    clonedState.version = baseVersion + 1;
     setGameState(clonedState);
-    socket.emit('update_game_state', { roomCode: currentRoomCode, newState: clonedState });
+    socket.emit(
+      'update_game_state',
+      { roomCode: currentRoomCode, newState: clonedState, baseVersion },
+      (res: any) => {
+        if (res && !res.success && res.state) {
+          applyServerState(res.state, true);
+        }
+      }
+    );
   };
 
   const handleUndo = () => {
@@ -487,8 +537,9 @@ export default function RiskGamePage() {
     setShowCardModal(false);
   };
 
+  // کلاینت فقط درخواست می‌دهد؛ سرور شرایط را بررسی می‌کند و state جدید را به همه می‌فرستد
   const nextPhaseOrTurn = () => {
-    if (!isMyTurn) return;
+    if (!isMyTurn || isAdvancing) return;
 
     if (gameState.phase === 'attack' && (gameState.selectedTerritoryId || gameState.attackTargetId)) {
       alert('⚠️ ابتدا باید حمله انتخاب‌شده را لغو کنید و سپس به مرحله بعد بروید.');
@@ -500,7 +551,23 @@ export default function RiskGamePage() {
       return;
     }
 
-    socket.emit('next_phase_or_turn', { roomCode: currentRoomCode });
+    if (!currentRoomCode) {
+      reinitializeSocketConnection();
+      return;
+    }
+
+    setIsAdvancing(true);
+    // ایمنی: اگر ack نرسید، دکمه برای همیشه قفل نماند
+    const unlockTimer = setTimeout(() => setIsAdvancing(false), 4000);
+
+    socket.emit('next_phase_or_turn', { roomCode: currentRoomCode }, (res: any) => {
+      clearTimeout(unlockTimer);
+      setIsAdvancing(false);
+      if (res && !res.success) {
+        if (res.state) applyServerState(res.state, true);
+        if (res.message) alert('⚠️ ' + res.message);
+      }
+    });
   };
 
   return (
@@ -529,8 +596,8 @@ export default function RiskGamePage() {
             </button>
           )}
 
-          <button 
-            onClick={() => setShowCardModal(true)} 
+          <button
+            onClick={() => setShowCardModal(true)}
             disabled={!isMyTurn || gameState.phase !== 'reinforce'}
             className={`px-3 py-2 text-xs font-bold rounded-lg ${
               isMyTurn && gameState.phase === 'reinforce' ? 'bg-amber-800 hover:bg-amber-700 cursor-pointer' : 'bg-gray-700 opacity-50 cursor-not-allowed'
@@ -544,8 +611,14 @@ export default function RiskGamePage() {
           </button>
 
           {isMyTurn && (
-            <button onClick={nextPhaseOrTurn} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-xs font-bold rounded-lg text-white cursor-pointer shadow">
-              مرحله بعد ➔
+            <button
+              onClick={nextPhaseOrTurn}
+              disabled={isAdvancing}
+              className={`px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-xs font-bold rounded-lg text-white shadow ${
+                isAdvancing ? 'opacity-60 cursor-wait' : 'cursor-pointer'
+              }`}
+            >
+              {isAdvancing ? 'در حال انتقال...' : 'مرحله بعد ➔'}
             </button>
           )}
         </div>
@@ -557,11 +630,11 @@ export default function RiskGamePage() {
             <h3 className="text-lg font-bold text-amber-400">📦 جابجایی نیروها</h3>
             <p className="text-xs text-amber-200">چندتا از نیروهای مبدأ را می‌خواهید جابجا کنید؟</p>
             <div className="flex items-center justify-center gap-4 my-4">
-              <input 
-                type="range" 
-                min={1} 
-                max={Math.max(1, (gameState.territories[gameState.fortifySourceId]?.armies || 2) - 1)} 
-                value={fortifyAmount} 
+              <input
+                type="range"
+                min={1}
+                max={Math.max(1, (gameState.territories[gameState.fortifySourceId]?.armies || 2) - 1)}
+                value={fortifyAmount}
                 onChange={(e) => setFortifyAmount(parseInt(e.target.value))}
                 className="w-full accent-amber-500 cursor-pointer"
               />
@@ -611,7 +684,7 @@ export default function RiskGamePage() {
       <Map state={gameState} onSelectTerritory={handleTerritoryClick} />
 
       {showHelpModal && <HelpModal onClose={() => setShowHelpModal(false)} />}
-      
+
       {showMissionModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-[#2b1e16] border-2 border-amber-600 p-6 rounded-2xl max-w-md w-full text-center space-y-4 shadow-2xl">
@@ -623,25 +696,23 @@ export default function RiskGamePage() {
       )}
 
       {showCardModal && (
-        <CardModal 
-          cards={localPlayer.cards} 
-          isReinforcePhase={isMyTurn && gameState.phase === 'reinforce'} 
-          onTradeCards={handleTradeCards} 
-          onClose={() => setShowCardModal(false)} 
+        <CardModal
+          cards={localPlayer.cards}
+          isReinforcePhase={isMyTurn && gameState.phase === 'reinforce'}
+          onTradeCards={handleTradeCards}
+          onClose={() => setShowCardModal(false)}
         />
       )}
 
       {showDiceModal && gameState.diceResult && (
-        <DiceModal 
-          attackerRolls={gameState.diceResult.attacker} 
-          defenderRolls={gameState.diceResult.defender} 
-          message={gameState.diceResult.message} 
-          onClose={() => { 
-            setShowDiceModal(false); 
-            const resetState: GameState = JSON.parse(JSON.stringify({ ...gameState, diceResult: null }));
-            setGameState(resetState);
-            socket.emit('update_game_state', { roomCode: currentRoomCode, newState: resetState });
-          }} 
+        <DiceModal
+          attackerRolls={gameState.diceResult.attacker}
+          defenderRolls={gameState.diceResult.defender}
+          message={gameState.diceResult.message}
+          onClose={() => {
+            // بستن مودال فقط محلی است و دیگر چیزی به سرور فرستاده نمی‌شود
+            setDismissedDiceId(currentDiceId ?? -1);
+          }}
         />
       )}
     </main>

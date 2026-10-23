@@ -16,6 +16,9 @@ const io = new Server(server, {
 const rooms = {};
 const ADMIN_SECRET = 'shahab123';
 
+const clone = (obj) => JSON.parse(JSON.stringify(obj));
+const safeCallback = (cb) => (typeof cb === 'function' ? cb : () => {});
+
 function generateRoomCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -39,6 +42,36 @@ function resolveCombat(attackerArmies, defenderArmies) {
   }
 
   return { attackerRolls, defenderRolls, attackerLosses, defenderLosses };
+}
+
+// ───────────── توابع کمکی همگام‌سازی ─────────────
+
+// آیا سوکت فرستنده همان بازیکنِ نوبت‌دار است؟
+function isActivePlayerSocket(room, socketId) {
+  if (!room || !room.gameState) return false;
+  const state = room.gameState;
+  const roomPlayer = room.players.find((p) => p.socketId === socketId);
+  const activePlayer = state.players && state.players[state.activePlayerIndex];
+  if (!roomPlayer || !activePlayer) return false;
+  return roomPlayer.name === activePlayer.name;
+}
+
+function emitDiceReady(roomCode, room) {
+  io.in(roomCode).emit('dice_ready_updated', {
+    attackerReady: room.attackerReady,
+    defenderReady: room.defenderReady,
+  });
+}
+
+function resetDiceReady(roomCode, room) {
+  room.attackerReady = false;
+  room.defenderReady = false;
+  emitDiceReady(roomCode, room);
+}
+
+// ارسال نسخه‌ی کاملاً کلون‌شده‌ی state به همه‌ی اعضای روم
+function broadcastState(roomCode, room) {
+  io.in(roomCode).emit('game_state_updated', clone(room.gameState));
 }
 
 io.on('connection', (socket) => {
@@ -84,18 +117,19 @@ io.on('connection', (socket) => {
       if (isHost) room.hostPlayerId = playerId;
     }
 
-    callback({ 
-      success: true, 
-      roomCode, 
-      players: room.players, 
-      gameState: room.gameState, 
-      attackerReady: room.attackerReady, 
-      defenderReady: room.defenderReady 
+    callback({
+      success: true,
+      roomCode,
+      players: room.players,
+      gameState: room.gameState ? clone(room.gameState) : null,
+      attackerReady: room.attackerReady,
+      defenderReady: room.defenderReady,
     });
-    
+
     io.in(roomCode).emit('room_updated', { players: room.players });
     if (room.gameState) {
-      io.in(roomCode).emit('game_state_updated', room.gameState);
+      // فقط برای سوکتی که تازه وصل شده؛ بقیه نیازی به بازنویسی ندارند
+      socket.emit('game_state_updated', clone(room.gameState));
     }
   });
 
@@ -108,12 +142,13 @@ io.on('connection', (socket) => {
 
   socket.on('start_game', ({ roomCode, initialState }) => {
     const room = rooms[roomCode];
-    if (room) {
+    if (room && initialState) {
+      initialState.version = 1;
       room.gameState = initialState;
       room.attackerReady = false;
       room.defenderReady = false;
-      io.in(roomCode).emit('game_started', initialState);
-      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
+      io.in(roomCode).emit('game_started', clone(initialState));
+      emitDiceReady(roomCode, room);
     }
   });
 
@@ -124,10 +159,7 @@ io.on('connection', (socket) => {
     if (role === 'attacker') room.attackerReady = readyState;
     if (role === 'defender') room.defenderReady = readyState;
 
-    io.in(roomCode).emit('dice_ready_updated', {
-      attackerReady: room.attackerReady,
-      defenderReady: room.defenderReady,
-    });
+    emitDiceReady(roomCode, room);
 
     if (room.attackerReady && room.defenderReady) {
       const state = room.gameState;
@@ -152,7 +184,9 @@ io.on('connection', (socket) => {
           state.territories = newTerritories;
           state.selectedTerritoryId = null;
           state.attackTargetId = null;
+          state.version = (state.version || 0) + 1;
           state.diceResult = {
+            id: state.version, // شناسه‌ی یکتا تا هر کلاینت فقط به‌صورت محلی مودال را ببندد
             attacker: combat.attackerRolls,
             defender: combat.defenderRolls,
             message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد!' : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
@@ -160,28 +194,33 @@ io.on('connection', (socket) => {
         }
       }
 
-      room.attackerReady = false;
-      room.defenderReady = false;
-
-      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
-      io.in(roomCode).emit('game_state_updated', state);
+      resetDiceReady(roomCode, room);
+      broadcastState(roomCode, room);
     }
   });
 
-  // کنترل دقیق و استاندارد تعویض فاز و نوبت
-  socket.on('next_phase_or_turn', ({ roomCode }) => {
+  // تغییر فاز و نوبت: فقط و فقط در سرور و فقط توسط بازیکن نوبت‌دار
+  socket.on('next_phase_or_turn', ({ roomCode } = {}, callback) => {
+    const reply = safeCallback(callback);
     const room = rooms[roomCode];
-    if (!room || !room.gameState) return;
+    if (!room || !room.gameState) {
+      return reply({ success: false, message: 'روم یا بازی یافت نشد.' });
+    }
 
-    let state = room.gameState;
+    if (!isActivePlayerSocket(room, socket.id)) {
+      return reply({ success: false, message: 'نوبت شما نیست.', state: clone(room.gameState) });
+    }
+
+    const state = room.gameState;
 
     if (state.phase === 'reinforce') {
-      if (state.reinforcementsRemaining > 0) return;
+      if (state.reinforcementsRemaining > 0) {
+        return reply({ success: false, message: 'هنوز سرباز برای قرار دادن دارید.', state: clone(state) });
+      }
       state.phase = 'attack';
     } else if (state.phase === 'attack') {
       state.phase = 'fortify';
     } else if (state.phase === 'fortify') {
-      // رفتن به نوبت بازیکن بعدی
       const nextIndex = (state.activePlayerIndex + 1) % state.players.length;
       const nextPlayer = state.players[nextIndex];
       const nextTerritoriesCount = Object.values(state.territories).filter(t => t.ownerId === nextPlayer.id).length;
@@ -197,26 +236,47 @@ io.on('connection', (socket) => {
     state.attackTargetId = null;
     state.fortifySourceId = null;
     state.reinforcementHistory = [];
+    state.version = (state.version || 0) + 1;
 
-    room.attackerReady = false;
-    room.defenderReady = false;
-
-    io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
-    io.in(roomCode).emit('game_state_updated', state);
+    resetDiceReady(roomCode, room);
+    broadcastState(roomCode, room);
+    reply({ success: true });
   });
 
-  socket.on('update_game_state', ({ roomCode, newState }) => {
+  // به‌روزرسانی نقشه/سرباز/کارت/انتخاب‌ها توسط بازیکن نوبت‌دار
+  // فیلدهای phase / activePlayerIndex / turnNumber / diceResult هرگز از کلاینت پذیرفته نمی‌شوند
+  socket.on('update_game_state', ({ roomCode, newState, baseVersion } = {}, callback) => {
+    const reply = safeCallback(callback);
     const room = rooms[roomCode];
-    if (!room) return;
-
-    room.gameState = newState;
-    if (!newState.attackTargetId || !newState.selectedTerritoryId) {
-      room.attackerReady = false;
-      room.defenderReady = false;
-      io.in(roomCode).emit('dice_ready_updated', { attackerReady: false, defenderReady: false });
+    if (!room || !room.gameState || !newState) {
+      return reply({ success: false, message: 'روم یا بازی یافت نشد.' });
     }
 
-    io.in(roomCode).emit('game_state_updated', room.gameState);
+    const current = room.gameState;
+
+    if (!isActivePlayerSocket(room, socket.id)) {
+      return reply({ success: false, message: 'نوبت شما نیست.', state: clone(current) });
+    }
+
+    if (baseVersion !== (current.version || 0)) {
+      return reply({ success: false, stale: true, message: 'نسخه‌ی state قدیمی است.', state: clone(current) });
+    }
+
+    const next = clone(newState);
+    next.phase = current.phase;
+    next.activePlayerIndex = current.activePlayerIndex;
+    next.turnNumber = current.turnNumber;
+    next.diceResult = current.diceResult || null;
+    next.version = (current.version || 0) + 1;
+
+    room.gameState = next;
+
+    if (!next.attackTargetId || !next.selectedTerritoryId) {
+      resetDiceReady(roomCode, room);
+    }
+
+    broadcastState(roomCode, room);
+    reply({ success: true });
   });
 
   socket.on('disconnect', () => {});
