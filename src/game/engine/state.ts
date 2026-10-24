@@ -4,6 +4,7 @@ export interface Card {
   id: string;
   territoryId: string;
   type: 'infantry' | 'cavalry' | 'artillery' | 'wild';
+  stars?: number; // ۱ یا ۲ ستاره (توسط سرور هنگام ساخت دسته‌ی کارت‌ها تعیین می‌شود)
 }
 
 export interface Player {
@@ -35,7 +36,13 @@ export interface GameState {
   selectedTerritoryId: string | null;
   attackTargetId: string | null;
   fortifySourceId: string | null;
-  diceResult: { attacker: number[]; defender: number[]; message: string } | null;
+  diceResult: { id?: number; attacker: number[]; defender: number[]; message: string } | null;
   winner: string | null;
   turnNumber: number;
+
+  // فیلدهایی که سرور مدیریت می‌کند (اختیاری تا بقیه‌ی کد بدون تغییر کامپایل شود)
+  version?: number;
+  log?: Array<{ t: number; text: string }>;
+  winnerInfo?: { id: string; name: string; color: string; reason?: 'mission' | 'world'; mission?: string } | null;
+  eliminatedBy?: Record<string, string>;
 }
