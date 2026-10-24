@@ -575,6 +575,52 @@ function leaveRoom(roomCode, room, player) {
   broadcastPlayers(roomCode, room);
 }
 
+// ───────────── مدیریت روم‌ها توسط ادمین ─────────────
+
+function roomSummary(code, room) {
+  const state = room.gameState;
+  return {
+    code,
+    started: !!state,
+    turnNumber: state ? state.turnNumber || 1 : null,
+    winner: state && state.winnerInfo ? state.winnerInfo.name : null,
+    players: room.players.map((p) => ({ name: p.name, status: statusOf(p), isHost: p.isHost })),
+    lastActivity: room.lastActivity || 0,
+    createdAt: room.createdAt || 0,
+  };
+}
+
+// حذف کامل یک روم؛ همه‌ی بازیکنان بیرون انداخته می‌شوند و پیام «روم بسته شد» می‌گیرند
+function destroyRoom(code, reason) {
+  const room = rooms[code];
+  if (!room) return false;
+  clearAfkTimer(room);
+  io.in(code).emit('room_closed', { roomCode: code, reason });
+  const members = io.sockets.adapter.rooms.get(code);
+  if (members) {
+    for (const sid of Array.from(members)) {
+      const s = io.sockets.sockets.get(sid);
+      if (s) {
+        s.leave(code);
+        s.roomCode = null;
+      }
+    }
+  }
+  delete rooms[code];
+  return true;
+}
+
+// بررسی رمز ادمین؛ بعد از چند تلاش ناموفق همان سوکت موقتاً مسدود می‌شود
+function checkAdmin(socket, secret) {
+  if ((socket.adminFails || 0) >= 8) return false;
+  if (secret !== ADMIN_SECRET) {
+    socket.adminFails = (socket.adminFails || 0) + 1;
+    return false;
+  }
+  socket.adminFails = 0;
+  return true;
+}
+
 // پاکسازی رومهای رهاشده
 setInterval(() => {
   const now = Date.now();
@@ -615,6 +661,7 @@ io.on('connection', (socket) => {
       attackerReady: false,
       defenderReady: false,
       afkTimer: null,
+      createdAt: Date.now(),
       lastActivity: Date.now(),
       deck: [],
       discard: [],
@@ -744,13 +791,20 @@ io.on('connection', (socket) => {
     room.deck = buildDeck(Object.keys(initialState.territories));
     room.discard = [];
 
-    const firstPlayer = initialState.players[initialState.activePlayerIndex || 0];
+    // قرعه‌کشی: نفر اول کاملاً تصادفی انتخاب می‌شود (سازنده‌ی روم همیشه اول نیست)
+    const playerCount = initialState.players.length;
+    initialState.activePlayerIndex = playerCount > 0 ? Math.floor(Math.random() * playerCount) : 0;
+
+    const firstPlayer = initialState.players[initialState.activePlayerIndex];
     if (firstPlayer) {
       initialState.reinforcementsRemaining = reinforcementsFor(initialState, firstPlayer.id);
     }
     addLog(initialState, '🚀 بازی شروع شد');
     const first = initialState.players && initialState.players[initialState.activePlayerIndex || 0];
-    if (first) addLog(initialState, `🎯 نوبت ${first.name} شروع شد`);
+    if (first) {
+      addLog(initialState, `🎲 قرعه‌کشی انجام شد: ${first.name} بازی را شروع می‌کند`);
+      addLog(initialState, `🎯 نوبت ${first.name} شروع شد (${initialState.reinforcementsRemaining} سرباز)`);
+    }
 
     room.gameState = initialState;
     room.attackerReady = false;
@@ -861,6 +915,34 @@ io.on('connection', (socket) => {
     reply({ success: true });
   });
 
+  socket.on('admin_list_rooms', ({ adminSecret } = {}, callback) => {
+    const reply = safeCallback(callback);
+    if (!checkAdmin(socket, adminSecret)) return reply({ success: false, message: 'رمز عبور ادمین اشتباه است!' });
+    const list = Object.keys(rooms)
+      .map((code) => roomSummary(code, rooms[code]))
+      .sort((a, b) => b.lastActivity - a.lastActivity);
+    reply({ success: true, rooms: list });
+  });
+
+  socket.on('admin_delete_room', ({ adminSecret, roomCode } = {}, callback) => {
+    const reply = safeCallback(callback);
+    if (!checkAdmin(socket, adminSecret)) return reply({ success: false, message: 'رمز عبور ادمین اشتباه است!' });
+    const ok = destroyRoom(String(roomCode || ''), 'روم توسط ادمین حذف شد.');
+    reply({ success: ok, message: ok ? undefined : 'روم یافت نشد.' });
+  });
+
+  // حذف همه‌ی رومهایی که هیچ بازیکن آنلاینی ندارند
+  socket.on('admin_delete_idle_rooms', ({ adminSecret } = {}, callback) => {
+    const reply = safeCallback(callback);
+    if (!checkAdmin(socket, adminSecret)) return reply({ success: false, message: 'رمز عبور ادمین اشتباه است!' });
+    let removed = 0;
+    for (const code of Object.keys(rooms)) {
+      const anyOnline = rooms[code].players.some((p) => statusOf(p) === 'online');
+      if (!anyOnline && destroyRoom(code, 'روم غیرفعال بود و حذف شد.')) removed++;
+    }
+    reply({ success: true, removed });
+  });
+
   // مبادله‌ی کارت: فقط بازیکن نوبت‌دار، فقط در فاز تقویت؛ پاداش را خود سرور حساب می‌کند
   socket.on('trade_cards', ({ roomCode, cardIds } = {}, callback) => {
     const reply = safeCallback(callback);
@@ -907,5 +989,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`[server v4 - cards/missions] سرور روی پورت ${PORT} فعال است.`);
+  console.log(`[server v5 - admin rooms/ui upgrade] سرور روی پورت ${PORT} فعال است.`);
 });

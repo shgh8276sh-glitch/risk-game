@@ -7,8 +7,11 @@ import { CardModal } from '@/components/CardModal';
 import { HelpModal } from '@/components/HelpModal';
 import { initializeGame } from '@/game/engine/setup';
 import { GameState, Card } from '@/game/engine/state';
-import { TERRITORIES } from '@/game/data/territories';
+import { TERRITORIES, CONTINENTS } from '@/game/data/territories';
 import { socket } from '@/game/socket';
+import { FortifyModal } from '@/components/FortifyModal';
+import { AdminRoomsPanel, AdminRoomInfo } from '@/components/AdminRoomsPanel';
+import { getMissionProgress } from '@/game/engine/missionProgress';
 
 const getVersion = (s: any): number => (s && typeof s.version === 'number' ? s.version : 0);
 
@@ -28,6 +31,21 @@ const emitAck = (event: string, payload: any, timeoutMs = 8000): Promise<any> =>
       resolve(res);
     });
   });
+
+const PHASES = [
+  { id: 'reinforce', icon: '🛡️', label: 'تقویت' },
+  { id: 'attack', icon: '⚔️', label: 'حمله' },
+  { id: 'fortify', icon: '🧭', label: 'جابجایی' },
+] as const;
+
+const CONTINENT_LABEL: Record<string, string> = {
+  na: 'آ.شمالی',
+  sa: 'آ.جنوبی',
+  eu: 'اروپا',
+  af: 'آفریقا',
+  as: 'آسیا',
+  au: 'استرالیا',
+};
 
 type ToastKind = 'info' | 'success' | 'error';
 type ToastItem = { id: number; text: string; kind: ToastKind };
@@ -68,6 +86,10 @@ export default function RiskGamePage() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isAdvancing, setIsAdvancing] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [showConnPill, setShowConnPill] = useState<boolean>(false);
+  const [showAdminPanel, setShowAdminPanel] = useState<boolean>(false);
+  const [adminRooms, setAdminRooms] = useState<AdminRoomInfo[]>([]);
+  const [adminLoading, setAdminLoading] = useState<boolean>(false);
 
   const [attackerReady, setAttackerReady] = useState<boolean>(false);
   const [defenderReady, setDefenderReady] = useState<boolean>(false);
@@ -78,6 +100,7 @@ export default function RiskGamePage() {
   const hasJoinedRef = useRef<boolean>(false);
   const toastIdRef = useRef<number>(0);
   const wasDisconnectedRef = useRef<boolean>(false);
+  const disconnectedAtRef = useRef<number>(0);
   const prevStatusRef = useRef<Record<string, string>>({});
   const prevTurnKeyRef = useRef<string | null>(null);
   const prevCardCountRef = useRef<number | null>(null);
@@ -239,14 +262,18 @@ export default function RiskGamePage() {
 
     const onConnect = () => {
       setConnStatus('connected');
+      // قطع‌های کوتاه بی‌صدا ترمیم می‌شوند؛ فقط بعد از قطعی طولانی (بیش از ۱۵ ثانیه) پیام نشان می‌دهیم
       if (wasDisconnectedRef.current) {
         wasDisconnectedRef.current = false;
-        pushToast('اتصال به سرور دوباره برقرار شد', 'success');
+        if (Date.now() - disconnectedAtRef.current > 15000) {
+          pushToast('اتصال به سرور دوباره برقرار شد', 'success');
+        }
       }
       rejoinRoom();
     };
 
     const onDisconnect = (reason: string) => {
+      if (!wasDisconnectedRef.current) disconnectedAtRef.current = Date.now();
       wasDisconnectedRef.current = true;
       setConnStatus('reconnecting');
       if (reason === 'io server disconnect') socket.connect();
@@ -284,6 +311,8 @@ export default function RiskGamePage() {
     };
 
     const onGameStarted = (initialState: any) => {
+      const firstName = initialState?.players?.[initialState.activePlayerIndex]?.name;
+      if (firstName) pushToast(`🎲 قرعه‌کشی انجام شد: ${firstName} بازی را شروع می‌کند`, 'info');
       applyServerState(initialState, true);
       setDismissedDiceId(null);
       setWinnerDismissed(false);
@@ -302,6 +331,17 @@ export default function RiskGamePage() {
     // خروج از همین روم در پنجره‌ی دیگر
     const onLeftRoom = () => resetToLobby();
 
+    // ادمین روم را حذف کرده است
+    const onRoomClosed = (payload: { roomCode?: string; reason?: string }) => {
+      if (payload?.roomCode && localStorage.getItem('risk_lastRoom') === payload.roomCode) {
+        localStorage.removeItem('risk_lastRoom');
+      }
+      resetToLobby();
+      const msg = payload?.reason || 'این روم بسته شد.';
+      setErrorMessage(msg);
+      pushToast(msg, 'error');
+    };
+
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('online', onBrowserOnline);
     socket.on('connect', onConnect);
@@ -312,6 +352,7 @@ export default function RiskGamePage() {
     socket.on('game_state_updated', onGameStateUpdated);
     socket.on('dice_ready_updated', onDiceReady);
     socket.on('left_room', onLeftRoom);
+    socket.on('room_closed', onRoomClosed);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
@@ -324,6 +365,7 @@ export default function RiskGamePage() {
       socket.off('game_state_updated', onGameStateUpdated);
       socket.off('dice_ready_updated', onDiceReady);
       socket.off('left_room', onLeftRoom);
+      socket.off('room_closed', onRoomClosed);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -344,6 +386,31 @@ export default function RiskGamePage() {
     document.title = mine ? '🎯 نوبت شماست — Risk' : 'Risk';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState?.activePlayerIndex, (gameState as any)?.turnNumber, username]);
+
+  // کلید Esc همه‌ی پنجره‌های باز را می‌بندد
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setShowHelpModal(false);
+      setShowMissionModal(false);
+      setShowCardModal(false);
+      setShowLeaveModal(false);
+      setShowFortifyModal(false);
+      setShowAdminPanel(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // نشانگر اتصال فقط وقتی دیده می‌شود که قطعی بیش از ۸ ثانیه طول بکشد
+  useEffect(() => {
+    if (connStatus === 'connected') {
+      setShowConnPill(false);
+      return;
+    }
+    const t = setTimeout(() => setShowConnPill(true), 8000);
+    return () => clearTimeout(t);
+  }, [connStatus]);
 
   // اعلان دریافت کارت (بعد از فتح موفق)
   const myCardCount = gameState?.players.find((p) => p.name === username)?.cards.length ?? null;
@@ -437,6 +504,69 @@ export default function RiskGamePage() {
     }
   };
 
+  // ───────────── مدیریت روم‌ها (ادمین) ─────────────
+  const loadAdminRooms = async (): Promise<boolean> => {
+    if (!socket.connected) {
+      socket.connect();
+      setErrorMessage('ارتباط با سرور برقرار نیست؛ چند ثانیه بعد دوباره امتحان کنید.');
+      return false;
+    }
+    setAdminLoading(true);
+    const res = await emitAck('admin_list_rooms', { adminSecret: adminSecretInput }, 12000);
+    setAdminLoading(false);
+    if (res?.success) {
+      setAdminRooms(res.rooms || []);
+      return true;
+    }
+    setErrorMessage(res?.message || 'دریافت لیست روم‌ها ممکن نشد.');
+    return false;
+  };
+
+  const openAdminPanel = async () => {
+    setErrorMessage('');
+    if (!adminSecretInput.trim()) {
+      setErrorMessage('برای مدیریت روم‌ها ابتدا رمز عبور ادمین را وارد کنید.');
+      return;
+    }
+    if (await loadAdminRooms()) setShowAdminPanel(true);
+  };
+
+  const forgetRoomLocally = (code: string) => {
+    if (localStorage.getItem('risk_lastRoom') === code) {
+      localStorage.removeItem('risk_lastRoom');
+      setLastRoom(null);
+    }
+    if (localStorage.getItem('risk_roomCode') === code) localStorage.removeItem('risk_roomCode');
+  };
+
+  const deleteAdminRoom = async (code: string) => {
+    const res = await emitAck('admin_delete_room', { adminSecret: adminSecretInput, roomCode: code }, 8000);
+    if (res?.success) {
+      forgetRoomLocally(code);
+      pushToast(`روم ${code} حذف شد`, 'success');
+    } else {
+      pushToast(res?.message || 'حذف روم ممکن نشد.', 'error');
+    }
+    await loadAdminRooms();
+  };
+
+  const deleteIdleRooms = async () => {
+    const before = adminRooms.map((r) => r.code);
+    const res = await emitAck('admin_delete_idle_rooms', { adminSecret: adminSecretInput }, 8000);
+    if (res?.success) {
+      pushToast(res.removed ? `${res.removed} روم غیرفعال حذف شد` : 'روم غیرفعالی وجود نداشت', 'success');
+    } else {
+      pushToast(res?.message || 'پاکسازی ممکن نشد.', 'error');
+    }
+    await loadAdminRooms();
+    // اگر روم ذخیره‌شده‌ی خودِ ادمین دیگر وجود ندارد، از حافظه‌ی مرورگر پاکش کن
+    setAdminRooms((current) => {
+      const alive = new Set(current.map((r) => r.code));
+      before.filter((c) => !alive.has(c)).forEach(forgetRoomLocally);
+      return current;
+    });
+  };
+
   // خروج ارادی؛ نوبت‌های این بازیکن رد می‌شود و با کد روم می‌تواند برگردد
   const handleLeaveRoom = async () => {
     const code = currentRoomCode;
@@ -465,11 +595,12 @@ export default function RiskGamePage() {
   // ───────────── لایه‌های همیشه‌حاضر: وضعیت اتصال و اعلان‌ها ─────────────
   const overlays = (
     <>
-      {connStatus !== 'connected' && (
-        <div className="fixed top-0 inset-x-0 z-[70] bg-amber-700 text-white text-xs font-bold text-center py-2 shadow-lg" dir="rtl">
-          {connStatus === 'connecting'
-            ? '⏳ در حال اتصال به سرور... (اگر سرور خواب بوده، تا یک دقیقه طول می‌کشد)'
-            : '🔌 ارتباط با سرور قطع شد. در حال اتصال مجدد؛ بازی شما حفظ می‌شود.'}
+      {connStatus !== 'connected' && showConnPill && (
+        <div
+          className="fixed bottom-3 left-3 z-[60] pointer-events-none text-[10px] font-bold text-amber-200/90 bg-[#2b1e16]/90 border border-amber-700/50 rounded-full px-3 py-1 shadow"
+          dir="rtl"
+        >
+          {connStatus === 'connecting' ? '⏳ در حال اتصال به سرور...' : '🔌 اتصال ضعیف؛ در حال تلاش مجدد...'}
         </div>
       )}
       <div className="fixed bottom-4 inset-x-0 z-[70] flex flex-col items-center gap-2 pointer-events-none px-4" dir="rtl">
@@ -520,6 +651,16 @@ export default function RiskGamePage() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-6 bg-[#1a120b] text-amber-100" dir="rtl">
         {overlays}
+        {showAdminPanel && (
+          <AdminRoomsPanel
+            rooms={adminRooms}
+            loading={adminLoading}
+            onRefresh={loadAdminRooms}
+            onDelete={deleteAdminRoom}
+            onDeleteIdle={deleteIdleRooms}
+            onClose={() => setShowAdminPanel(false)}
+          />
+        )}
         <div className="text-center space-y-6 max-w-md bg-[#2b1e16] p-8 rounded-3xl border-2 border-[#8c653d] shadow-2xl w-full">
           <h1 className="text-4xl font-black text-amber-400 font-serif">RISK GAME</h1>
           {errorMessage && <div className="bg-red-900 text-white text-xs p-3 rounded-xl">{errorMessage}</div>}
@@ -554,6 +695,9 @@ export default function RiskGamePage() {
           </div>
           <button onClick={handleCreateRoom} disabled={isLoading} className="w-full py-3 bg-amber-600 hover:bg-amber-500 font-bold text-sm rounded-xl text-white cursor-pointer">
             {isLoading ? 'در حال انجام...' : '🛠️ ساخت روم جدید (ادمین)'}
+          </button>
+          <button onClick={openAdminPanel} disabled={adminLoading} className="w-full py-2.5 bg-[#3a2a1d] hover:bg-[#4a3626] border border-[#8c653d]/70 font-bold text-xs rounded-xl text-amber-200 cursor-pointer">
+            {adminLoading ? 'در حال دریافت...' : '🗂️ مدیریت و حذف روم‌ها (ادمین)'}
           </button>
           <div className="pt-3 border-t border-[#8c653d]/40 space-y-2">
             <input
@@ -650,6 +794,28 @@ export default function RiskGamePage() {
     | null
     | undefined;
   const logEntries: { t: number; text: string }[] = ((gameState as any).log as any[]) || [];
+
+  const territoryName = (id: string) => TERRITORIES.find((t) => t.id === id)?.name ?? id;
+  const missionProgress = getMissionProgress(localPlayer.mission, gameState, localPlayer.id);
+
+  // راهنمای متنیِ مرحله‌ی فعلی
+  const phaseHint = (() => {
+    if (winner) return '🏆 بازی تمام شده است.';
+    if (!isMyTurn) return `⏳ منتظر حرکت ${activePlayer.name} هستید...`;
+    if (gameState.phase === 'reinforce') {
+      return gameState.reinforcementsRemaining > 0
+        ? `روی قلمروهای خودتان کلیک کنید تا سرباز بگذارید (${gameState.reinforcementsRemaining} سرباز باقی مانده). برای مبادله‌ی کارت از دکمه‌ی «کارت‌ها» استفاده کنید.`
+        : 'همه‌ی سربازها گذاشته شد. «مرحله بعد» را بزنید تا به فاز حمله بروید.';
+    }
+    if (gameState.phase === 'attack') {
+      const cardHint = gameState.conqueredTerritoryThisTurn ? ' 🃏 در پایان این فاز یک کارت می‌گیرید.' : '';
+      if (!gameState.selectedTerritoryId) return 'یک قلمرو خودتان (با حداقل ۲ سرباز) را برای حمله انتخاب کنید، یا «مرحله بعد» را بزنید.' + cardHint;
+      if (!gameState.attackTargetId) return 'حالا یک قلمرو همسایه‌ی دشمن را انتخاب کنید.' + cardHint;
+      return 'منتظر پرتاب تاس مهاجم و مدافع...' + cardHint;
+    }
+    if (!gameState.fortifySourceId) return 'اختیاری: قلمرویی را که می‌خواهید از آن سرباز جابجا کنید انتخاب کنید، یا «مرحله بعد» را بزنید تا نوبت تمام شود.';
+    return 'قلمروی مقصد را انتخاب کنید (باید از مسیر قلمروهای خودتان متصل باشد).';
+  })();
 
   // نمایش مودال تاس: هر نتیجه (با id یکتا) فقط یک‌بار برای هر کلاینت و بسته شدنش کاملاً محلی است
   const currentDiceId: number | null = (gameState as any).diceResult?.id ?? null;
@@ -947,12 +1113,33 @@ export default function RiskGamePage() {
               روم: <span className="font-mono">{currentRoomCode}</span> 📋
             </button>
           </p>
-          <p className="text-xs text-emerald-400 font-bold mt-1">
-            مرحله نوبت: {gameState.phase === 'reinforce' ? '۱. تقویت نیروها (گذاشتن سرباز)' : gameState.phase === 'attack' ? '۲. فاز حمله' : '۳. جابجایی نیروها'}
-            {gameState.phase === 'reinforce' && ` | سرباز باقی‌مانده: ${gameState.reinforcementsRemaining}`}
-            {gameState.phase === 'fortify' && gameState.fortifySourceId && ' | مبدأ انتخاب شد، قلمروی مقصد را انتخاب کنید'}
-            {gameState.phase === 'attack' && gameState.conqueredTerritoryThisTurn && ' | 🃏 یک کارت در پایان فاز حمله می‌گیرید'}
-          </p>
+          <div className="flex items-center gap-1.5 mt-2" aria-label="مراحل نوبت">
+            {PHASES.map((ph, i) => {
+              const currentIdx = PHASES.findIndex((x) => x.id === gameState.phase);
+              const status = i < currentIdx ? 'done' : i === currentIdx ? 'current' : 'todo';
+              return (
+                <React.Fragment key={ph.id}>
+                  {i > 0 && <span className={`w-4 h-0.5 rounded ${i <= currentIdx ? 'bg-emerald-500' : 'bg-[#8c653d]/40'}`} />}
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition ${
+                      status === 'current'
+                        ? 'bg-emerald-700 border-emerald-400 text-white shadow-[0_0_10px_rgba(52,211,153,0.35)]'
+                        : status === 'done'
+                        ? 'bg-emerald-900/40 border-emerald-700/60 text-emerald-300/80'
+                        : 'bg-[#1a120b] border-[#8c653d]/40 text-amber-300/50'
+                    }`}
+                  >
+                    <span>{status === 'done' ? '✔' : ph.icon}</span>
+                    {ph.label}
+                  </span>
+                </React.Fragment>
+              );
+            })}
+            {gameState.phase === 'reinforce' && (
+              <span className="mr-2 text-[11px] font-bold text-amber-300">🪖 {gameState.reinforcementsRemaining} سرباز</span>
+            )}
+          </div>
+          <p className="text-xs text-emerald-300/90 mt-2 leading-5 max-w-xl">{phaseHint}</p>
         </div>
 
         <div className="flex flex-wrap gap-2 items-center">
@@ -1026,6 +1213,18 @@ export default function RiskGamePage() {
               <span className="text-amber-300/80">🗺️ {owned.length}</span>
               <span className="text-amber-300/80">⚔️ {armies}</span>
               <span className="text-amber-300/80">🃏 {p.cards.length}</span>
+              {Object.values(CONTINENTS)
+                .filter((c) => TERRITORIES.filter((t) => t.continentId === c.id).every((t) => gameState.territories[t.id]?.ownerId === p.id))
+                .map((c) => (
+                  <span
+                    key={c.id}
+                    className="text-[10px] px-1.5 py-0.5 rounded font-bold text-white"
+                    style={{ backgroundColor: c.color }}
+                    title={`${c.name}: +${c.bonus} سرباز در هر نوبت`}
+                  >
+                    {CONTINENT_LABEL[c.id] || c.name} +{c.bonus}
+                  </span>
+                ))}
               {rp && rp.status !== 'online' && <span className="text-[10px] text-orange-300">{meta.label}</span>}
               {rp?.isHost && <span className="text-[10px] bg-amber-700 text-white px-1.5 py-0.5 rounded">Host</span>}
             </div>
@@ -1045,28 +1244,17 @@ export default function RiskGamePage() {
         </section>
       )}
 
-      {showFortifyModal && gameState.fortifySourceId && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#2b1e16] border-2 border-amber-600 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
-            <h3 className="text-lg font-bold text-amber-400">📦 جابجایی نیروها</h3>
-            <p className="text-xs text-amber-200">چندتا از نیروهای مبدأ را می‌خواهید جابجا کنید؟</p>
-            <div className="flex items-center justify-center gap-4 my-4">
-              <input
-                type="range"
-                min={1}
-                max={Math.max(1, (gameState.territories[gameState.fortifySourceId]?.armies || 2) - 1)}
-                value={fortifyAmount}
-                onChange={(e) => setFortifyAmount(parseInt(e.target.value))}
-                className="w-full accent-amber-500 cursor-pointer"
-              />
-              <span className="text-xl font-bold font-mono text-emerald-400 bg-[#1a120b] px-4 py-1.5 rounded-xl border border-[#8c653d]">{fortifyAmount}</span>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={executeFortifyTransfer} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs cursor-pointer">تایید جابجایی</button>
-              <button onClick={() => setShowFortifyModal(false)} className="flex-1 py-2.5 bg-gray-700 hover:bg-gray-600 text-white rounded-xl font-bold text-xs cursor-pointer">انصراف</button>
-            </div>
-          </div>
-        </div>
+      {showFortifyModal && gameState.fortifySourceId && fortifyTargetId && (
+        <FortifyModal
+          sourceName={territoryName(gameState.fortifySourceId)}
+          targetName={territoryName(fortifyTargetId)}
+          sourceArmies={gameState.territories[gameState.fortifySourceId]?.armies ?? 1}
+          targetArmies={gameState.territories[fortifyTargetId]?.armies ?? 0}
+          amount={fortifyAmount}
+          onChange={setFortifyAmount}
+          onConfirm={executeFortifyTransfer}
+          onCancel={() => setShowFortifyModal(false)}
+        />
       )}
 
       {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
@@ -1113,7 +1301,21 @@ export default function RiskGamePage() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
           <div className="bg-[#2b1e16] border-2 border-amber-600 p-6 rounded-2xl max-w-md w-full text-center space-y-4 shadow-2xl">
             <h3 className="text-lg font-bold text-amber-400">🎯 ماموریت محرمانه شما</h3>
-            <p className="text-sm text-amber-100 bg-[#1a120b] p-4 rounded-xl border border-[#8c653d]">{localPlayer.mission}</p>
+            <p className="text-sm text-amber-100 bg-[#1a120b] p-4 rounded-xl border border-[#8c653d] leading-7">{localPlayer.mission}</p>
+            {missionProgress && (
+              <div className="text-right bg-[#1a120b] p-3 rounded-xl border border-[#8c653d]/60 space-y-2">
+                <p className="text-[11px] font-bold text-amber-400">📈 پیشرفت شما {missionProgress.done && '— آماده‌ی برد!'}</p>
+                <p className="text-xs text-amber-100/90">{missionProgress.detail}</p>
+                {missionProgress.ratio !== null && (
+                  <div className="h-2 rounded-full bg-[#3a2a1d] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-l from-emerald-400 to-emerald-600 transition-all duration-500"
+                      style={{ width: `${Math.round(missionProgress.ratio * 100)}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             <button onClick={() => setShowMissionModal(false)} className="px-6 py-2 bg-amber-700 hover:bg-amber-600 text-white rounded-xl cursor-pointer font-bold text-xs">بستن</button>
           </div>
         </div>
