@@ -5,15 +5,13 @@ const cors = require('cors');
 
 const rooms = {};
 
-// برای امنیت بهتر، رمز را در Render از بخش Environment با نام ADMIN_SECRET تنظیم کن
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'shahab123';
 
-const AFK_SKIP_MS = 45 * 1000; // اگر بازیکنِ نوبت‌دار این‌قدر آفلاین بماند، نوبتش رد می‌شود
-const ROOM_TTL_MS = 6 * 60 * 60 * 1000; // روم بدون بازیکنِ آنلاین بعد از ۶ ساعت پاک می‌شود
+const AFK_SKIP_MS = 45 * 1000;
+const ROOM_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_LOG = 40;
 const COLORS = ['#dc2626', '#2563eb', '#16a34a', '#eab308', '#9333ea'];
 
-// ───────────── داده‌های نقشه (هم‌خوان با territories.ts) ─────────────
 const CONTINENT_TERRITORIES = {
   na: ['alaska', 'northwest_territory', 'greenland', 'alberta', 'ontario', 'quebec', 'western_us', 'eastern_us', 'central_america'],
   sa: ['venezuela', 'peru', 'brazil', 'argentina'],
@@ -23,10 +21,8 @@ const CONTINENT_TERRITORIES = {
   au: ['indonesia', 'new_guinea', 'western_australia', 'eastern_australia'],
 };
 const CONTINENT_BONUS = { na: 5, sa: 2, eu: 5, af: 3, as: 7, au: 2 };
-// اگر نمی‌خواهی پاداش قاره‌ها در شروع نوبت محاسبه شود، false کن
 const CONTINENT_BONUS_ENABLED = true;
 
-// نام فارسی قاره‌ها در متن ماموریت‌ها
 const CONTINENT_NAME_TO_ID = {
   'آمریکای شمالی': 'na',
   'آمریکای جنوبی': 'sa',
@@ -35,7 +31,6 @@ const CONTINENT_NAME_TO_ID = {
   'آسیا': 'as',
   'استرالیا': 'au',
 };
-// رنگ ارتش‌ها در متن ماموریت‌ها (نارنجی در بازی وجود ندارد)
 const COLOR_BY_WORD = {
   'قرمز': '#dc2626',
   'آبی': '#2563eb',
@@ -44,17 +39,14 @@ const COLOR_BY_WORD = {
   'بنفش': '#9333ea',
 };
 
-// ───────────── قوانین کارت (طبق راهنمای بازی) ─────────────
-// روش ۱: ۳ کارت هم‌نماد یا ۳ نماد متفاوت | روش ۲: مجموع ستاره‌ها
 const SYMBOL_BONUS = { infantry: 4, cavalry: 6, artillery: 8, different: 10 };
 const STAR_BONUS = { 2: 2, 3: 4, 4: 7, 5: 10, 6: 13 };
-const MIN_CARDS_FOR_STARS = 2; // حداقل تعداد کارت برای مبادله‌ی ستاره‌ای
+const MIN_CARDS_FOR_STARS = 2;
 const CARD_TYPES = ['infantry', 'cavalry', 'artillery'];
 
 const app = express();
 app.use(cors());
 app.get('/', (req, res) => res.send('Risk server is running'));
-// برای سرویس‌های مانیتورینگ (مثلاً UptimeRobot) تا سرور رایگان Render خواب نرود
 app.get('/health', (req, res) => {
   res.json({ ok: true, rooms: Object.keys(rooms).length, uptime: Math.round(process.uptime()) });
 });
@@ -65,8 +57,6 @@ const io = new Server(server, {
   pingTimeout: 60000,
   pingInterval: 20000,
 });
-
-// ───────────── توابع کمکی عمومی ─────────────
 
 const clone = (obj) => JSON.parse(JSON.stringify(obj));
 const safeCallback = (cb) => (typeof cb === 'function' ? cb : () => {});
@@ -82,13 +72,8 @@ function generateRoomCode() {
   return code;
 }
 
-// ───────────── وضعیت بازیکنان روم ─────────────
-// هر بازیکن: { playerId, name, color, isHost, left, sockets:Set }
-// status: online (حداقل یک سوکت زنده) | offline (قطع اتصال، می‌تواند برگردد) | left (خودش خارج شده)
-
 const statusOf = (p) => (p.left ? 'left' : p.sockets.size > 0 ? 'online' : 'offline');
 
-// playerId هرگز برای دیگران ارسال نمی‌شود (جلوگیری از جعل هویت)
 const publicPlayers = (room) =>
   room.players.map((p) => ({ name: p.name, color: p.color, isHost: p.isHost, status: statusOf(p) }));
 
@@ -113,7 +98,6 @@ function pickColor(room) {
   return COLORS.find((c) => !used.has(c)) || COLORS[room.players.length % COLORS.length];
 }
 
-// آیا سوکت فرستنده همان بازیکنِ نوبت‌دار است؟ (هویت از روی playerId ثبت‌شده در سوکت)
 function isActivePlayerSocket(room, socket, roomCode) {
   const state = room && room.gameState;
   if (!state || socket.roomCode !== roomCode) return false;
@@ -121,8 +105,6 @@ function isActivePlayerSocket(room, socket, roomCode) {
   const active = state.players && state.players[state.activePlayerIndex];
   return !!(rp && !rp.left && active && rp.name === active.name);
 }
-
-// ───────────── توابع کمکی state بازی ─────────────
 
 function addLog(state, text) {
   if (!state) return;
@@ -142,7 +124,6 @@ function continentBonusFor(state, playerId) {
   return total;
 }
 
-// سرباز شروع نوبت = max(3, قلمروها ÷ ۳) + پاداش قاره‌های کامل
 const reinforcementsFor = (state, playerId) =>
   Math.max(3, Math.floor(countTerritories(state, playerId) / 3)) + continentBonusFor(state, playerId);
 
@@ -153,8 +134,6 @@ function clearSelections(state) {
   state.reinforcementHistory = [];
 }
 
-// ───────────── کارت‌ها ─────────────
-
 function shuffle(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -164,7 +143,6 @@ function shuffle(arr) {
   return a;
 }
 
-// یک کارت برای هر قلمرو؛ نماد (پیاده/سواره/توپخانه) و ستاره (۱ یا ۲) به‌صورت متوازن پخش می‌شود
 function buildDeck(territoryIds) {
   const deck = territoryIds.map((id, i) => ({
     id: `card_${id}`,
@@ -183,7 +161,6 @@ function drawCard(room) {
   return room.deck.pop() || null;
 }
 
-// اگر در این نوبت حداقل یک فتح موفق بوده، دقیقاً یک کارت به بازیکن نوبت‌دار می‌رسد
 function awardCardIfEarned(room) {
   const state = room.gameState;
   if (!state.conqueredTerritoryThisTurn) return;
@@ -198,7 +175,6 @@ function awardCardIfEarned(room) {
   addLog(state, `🃏 ${player.name} به‌خاطر فتح در این نوبت یک کارت گرفت`);
 }
 
-// ارزیابی یک مجموعه کارت؛ اگر هر دو روش ممکن باشد، پاداش بیشتر
 function evaluateCardSet(cards) {
   let best = null;
   const consider = (bonus, method) => {
@@ -222,15 +198,12 @@ function evaluateCardSet(cards) {
   return best || { valid: false, bonus: 0, method: null };
 }
 
-// ───────────── ماموریت‌ها و پیروزی ─────────────
-
 const normalizeText = (str) =>
   String(str || '')
     .replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
     .replace(/ي/g, 'ی')
     .replace(/ك/g, 'ک');
 
-// متن فارسی ماموریت را به یک شرط قابل‌اجرا تبدیل می‌کند
 function parseMission(text) {
   const t = normalizeText(text);
   const countMatch = t.match(/(\d+)\s*منطقه/);
@@ -268,12 +241,10 @@ function missionCompleted(state, player) {
     case 'destroy': {
       const targetColor = COLOR_BY_WORD[spec.colorWord];
       const target = state.players.find((p) => p.color === targetColor);
-      // هدف وجود ندارد یا خودِ بازیکن است ← ماموریت جایگزین (فتح ۲۴ منطقه)
       if (!target || target.id === player.id) return owned.length >= spec.fallbackCount;
       if (countTerritories(state, target.id) === 0) {
         const by = (state.eliminatedBy || {})[target.id];
         if (by === player.id) return true;
-        // هدف را شخص دیگری نابود کرده ← ماموریت جایگزین
         return owned.length >= spec.fallbackCount;
       }
       return false;
@@ -294,7 +265,6 @@ function setWinner(state, player, reason) {
   );
 }
 
-// ماموریت فقط با اقدامات خودِ بازیکنِ نوبت‌دار کامل می‌شود؛ پس همان را چک می‌کنیم
 function checkVictory(room) {
   const state = room.gameState;
   if (!state || state.winner) return;
@@ -310,7 +280,6 @@ function checkVictory(room) {
   }
 }
 
-// حذف کامل یک بازیکن: ثبت قاتل (برای ماموریت‌های «نابود کنید») و گرفتن کارت‌های او
 function handleElimination(state, victimId, killerId) {
   state.eliminatedBy = { ...(state.eliminatedBy || {}), [victimId]: killerId };
   const victim = state.players.find((p) => p.id === victimId);
@@ -327,16 +296,17 @@ const emitDiceReady = (roomCode, room) => {
   io.in(roomCode).emit('dice_ready_updated', {
     attackerReady: room.attackerReady,
     defenderReady: room.defenderReady,
+    attackerSelectedDice: room.attackerSelectedDice || 1,
   });
 };
 
 function resetDiceReady(roomCode, room) {
   room.attackerReady = false;
   room.defenderReady = false;
+  room.attackerSelectedDice = 1;
   emitDiceReady(roomCode, room);
 }
 
-// هر تغییر state روی سرور یک نسخه‌ی جدید می‌سازد و کلون کامل آن به همه‌ی اعضای روم می‌رود
 const broadcastState = (roomCode, room) => {
   io.in(roomCode).emit('game_state_updated', clone(room.gameState));
 };
@@ -347,7 +317,6 @@ function commitState(roomCode, room) {
   broadcastState(roomCode, room);
 }
 
-// رفتن به نوبت بازیکن بعدی؛ بازیکنانِ خارج‌شده و بازیکنانِ بدون قلمرو رد می‌شوند
 function advanceToNextPlayer(room) {
   const state = room.gameState;
   const n = state.players.length;
@@ -376,8 +345,6 @@ function advanceToNextPlayer(room) {
   addLog(state, `🎯 نوبت ${nextPlayer.name} شروع شد (${state.reinforcementsRemaining} سرباز)`);
   return true;
 }
-
-// ───────────── رد کردن نوبتِ بازیکنِ آفلاین ─────────────
 
 function clearAfkTimer(room) {
   if (room.afkTimer) {
@@ -416,10 +383,10 @@ function scheduleAfkSkip(roomCode, room) {
   }, AFK_SKIP_MS);
 }
 
-// ───────────── نبرد و تاس (منطق قبلی، بدون تغییر در قوانین) ─────────────
-
-function resolveCombat(attackerArmies, defenderArmies) {
-  const attackerDiceCount = Math.min(attackerArmies - 1, 3);
+// محاسبه نبرد با پشتیبانی از انتخاب تعداد تاس مهاجم
+function resolveCombat(attackerArmies, defenderArmies, requestedAttackerDice) {
+  const maxPossibleAttackerDice = Math.min(attackerArmies - 1, 3);
+  const attackerDiceCount = Math.max(1, Math.min(requestedAttackerDice || maxPossibleAttackerDice, maxPossibleAttackerDice));
   const defenderDiceCount = Math.min(defenderArmies, 2);
 
   const attackerRolls = Array.from({ length: attackerDiceCount }, () => Math.floor(Math.random() * 6) + 1).sort((a, b) => b - a);
@@ -439,7 +406,6 @@ function resolveCombat(attackerArmies, defenderArmies) {
   return { attackerRolls, defenderRolls, attackerLosses, defenderLosses };
 }
 
-// اگر مدافع از بازی خارج شده باشد، تاسِ او خودکار تأیید می‌شود تا نبرد برای همیشه گیر نکند
 function applyAutoDefender(room) {
   const s = room.gameState;
   if (!s || !room.attackerReady || !s.selectedTerritoryId || !s.attackTargetId) return;
@@ -461,10 +427,9 @@ function maybeResolveCombat(roomCode, room) {
 
     if (attacker && defender) {
       const attackerPlayer = state.players.find((p) => p.id === attacker.ownerId);
-      const fromName = prettyName(state.selectedTerritoryId);
       const toName = prettyName(state.attackTargetId);
 
-      const combat = resolveCombat(attacker.armies, defender.armies);
+      const combat = resolveCombat(attacker.armies, defender.armies, room.attackerSelectedDice);
       const newAttackerArmies = attacker.armies - combat.attackerLosses;
       const newDefenderArmies = defender.armies - combat.defenderLosses;
 
@@ -482,7 +447,7 @@ function maybeResolveCombat(roomCode, room) {
       state.attackTargetId = null;
       state.version = (state.version || 0) + 1;
       state.diceResult = {
-        id: state.version, // شناسه‌ی یکتا تا هر کلاینت فقط به‌صورت محلی مودال را ببندد
+        id: state.version,
         attacker: combat.attackerRolls,
         defender: combat.defenderRolls,
         message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد!' : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
@@ -497,7 +462,7 @@ function maybeResolveCombat(roomCode, room) {
         }
         checkVictory(room);
       } else {
-        addLog(state, `⚔️ ${attackerPlayer ? attackerPlayer.name : '؟'} از ${fromName} به ${toName} حمله کرد (تلفات: ${combat.attackerLosses} / ${combat.defenderLosses})`);
+        addLog(state, `⚔️ ${attackerPlayer ? attackerPlayer.name : '؟'} با ${combat.attackerRolls.length} تاس به ${toName} حمله کرد (تلفات: ${combat.attackerLosses} / ${combat.defenderLosses})`);
       }
     }
   }
@@ -507,9 +472,6 @@ function maybeResolveCombat(roomCode, room) {
   broadcastState(roomCode, room);
 }
 
-// ───────────── اتصال/قطع/خروج ─────────────
-
-// قطع شدن یک سوکت؛ بازیکن «آفلاین» می‌شود ولی از بازی بیرون نمی‌رود و می‌تواند برگردد
 function detachSocket(socket) {
   const code = socket.roomCode;
   if (!code) return;
@@ -527,7 +489,6 @@ function detachSocket(socket) {
   if (room.gameState) scheduleAfkSkip(code, room);
 }
 
-// خروج ارادی بازیکن
 function leaveRoom(roomCode, room, player) {
   for (const sid of Array.from(player.sockets)) {
     const s = io.sockets.sockets.get(sid);
@@ -540,7 +501,6 @@ function leaveRoom(roomCode, room, player) {
   player.sockets.clear();
 
   if (!room.gameState) {
-    // در لابی: کاملاً از لیست حذف می‌شود
     room.players = room.players.filter((p) => p !== player);
     if (room.players.length === 0) {
       clearAfkTimer(room);
@@ -548,7 +508,6 @@ function leaveRoom(roomCode, room, player) {
       return;
     }
   } else {
-    // در بازی: علامت «خارج شده» می‌خورد؛ نوبت‌هایش رد می‌شود ولی با کد روم می‌تواند برگردد
     player.left = true;
     addLog(room.gameState, `🚪 ${player.name} از بازی خارج شد`);
   }
@@ -575,8 +534,6 @@ function leaveRoom(roomCode, room, player) {
   broadcastPlayers(roomCode, room);
 }
 
-// ───────────── مدیریت روم‌ها توسط ادمین ─────────────
-
 function roomSummary(code, room) {
   const state = room.gameState;
   return {
@@ -590,7 +547,6 @@ function roomSummary(code, room) {
   };
 }
 
-// حذف کامل یک روم؛ همه‌ی بازیکنان بیرون انداخته می‌شوند و پیام «روم بسته شد» می‌گیرند
 function destroyRoom(code, reason) {
   const room = rooms[code];
   if (!room) return false;
@@ -610,7 +566,6 @@ function destroyRoom(code, reason) {
   return true;
 }
 
-// بررسی رمز ادمین؛ بعد از چند تلاش ناموفق همان سوکت موقتاً مسدود می‌شود
 function checkAdmin(socket, secret) {
   if ((socket.adminFails || 0) >= 8) return false;
   if (secret !== ADMIN_SECRET) {
@@ -621,7 +576,6 @@ function checkAdmin(socket, secret) {
   return true;
 }
 
-// پاکسازی رومهای رهاشده
 setInterval(() => {
   const now = Date.now();
   for (const code of Object.keys(rooms)) {
@@ -633,8 +587,6 @@ setInterval(() => {
     }
   }
 }, 10 * 60 * 1000);
-
-// ───────────── رویدادهای سوکت ─────────────
 
 io.on('connection', (socket) => {
   socket.on('create_room', (payload = {}, callback) => {
@@ -660,6 +612,7 @@ io.on('connection', (socket) => {
       gameState: null,
       attackerReady: false,
       defenderReady: false,
+      attackerSelectedDice: 1,
       afkTimer: null,
       createdAt: Date.now(),
       lastActivity: Date.now(),
@@ -679,7 +632,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  // ورود و «ورود مجدد»؛ با همان playerId یا همان نام می‌توان به بازی برگشت
   socket.on('join_room', (payload = {}, callback) => {
     const reply = safeCallback(callback);
     const name = cleanName(payload.username);
@@ -695,7 +647,6 @@ io.on('connection', (socket) => {
     if (!player) {
       const byName = room.players.find((p) => p.name === name);
       if (byName) {
-        // برگشت با همان نام (مثلاً از دستگاه دیگر)؛ فقط وقتی مجاز است که آن بازیکن الان آنلاین نباشد
         if (byName.sockets.size > 0) {
           return reply({ success: false, message: 'این نام کاربری هم‌اکنون در روم فعال است.' });
         }
@@ -743,6 +694,7 @@ io.on('connection', (socket) => {
       gameState: room.gameState ? clone(room.gameState) : null,
       attackerReady: room.attackerReady,
       defenderReady: room.defenderReady,
+      attackerSelectedDice: room.attackerSelectedDice,
     });
 
     broadcastPlayers(roomCode, room);
@@ -787,11 +739,9 @@ io.on('connection', (socket) => {
     initialState.players.forEach((p) => { p.cards = []; });
     delete initialState.deck;
 
-    // دسته‌ی کارت‌ها فقط روی سرور نگه داشته می‌شود و برای کلاینت‌ها ارسال نمی‌شود
     room.deck = buildDeck(Object.keys(initialState.territories));
     room.discard = [];
 
-    // قرعه‌کشی: نفر اول کاملاً تصادفی انتخاب می‌شود (سازنده‌ی روم همیشه اول نیست)
     const playerCount = initialState.players.length;
     initialState.activePlayerIndex = playerCount > 0 ? Math.floor(Math.random() * playerCount) : 0;
 
@@ -809,6 +759,7 @@ io.on('connection', (socket) => {
     room.gameState = initialState;
     room.attackerReady = false;
     room.defenderReady = false;
+    room.attackerSelectedDice = 1;
     touch(room);
 
     io.in(roomCode).emit('game_started', clone(initialState));
@@ -817,11 +768,14 @@ io.on('connection', (socket) => {
     reply({ success: true });
   });
 
-  socket.on('set_dice_status', ({ roomCode, role, readyState } = {}) => {
+  socket.on('set_dice_status', ({ roomCode, role, readyState, selectedDice } = {}) => {
     const room = rooms[roomCode];
     if (!room || !room.gameState || room.gameState.winner) return;
 
-    if (role === 'attacker') room.attackerReady = readyState;
+    if (role === 'attacker') {
+      room.attackerReady = readyState;
+      if (selectedDice) room.attackerSelectedDice = selectedDice;
+    }
     if (role === 'defender') room.defenderReady = readyState;
 
     applyAutoDefender(room);
@@ -829,7 +783,6 @@ io.on('connection', (socket) => {
     maybeResolveCombat(roomCode, room);
   });
 
-  // تغییر فاز و نوبت: فقط و فقط در سرور و فقط توسط بازیکن نوبت‌دار
   socket.on('next_phase_or_turn', ({ roomCode } = {}, callback) => {
     const reply = safeCallback(callback);
     const room = rooms[roomCode];
@@ -853,7 +806,7 @@ io.on('connection', (socket) => {
       state.phase = 'attack';
     } else if (state.phase === 'attack') {
       state.phase = 'fortify';
-      awardCardIfEarned(room); // حداقل یک فتح موفق = یک کارت
+      awardCardIfEarned(room);
     } else if (state.phase === 'fortify') {
       if (!advanceToNextPlayer(room)) {
         return reply({ success: false, message: 'بازیکن فعالی برای ادامه‌ی بازی نیست.', state: clone(state) });
@@ -861,15 +814,12 @@ io.on('connection', (socket) => {
     }
 
     clearSelections(state);
-
     resetDiceReady(roomCode, room);
     commitState(roomCode, room);
     scheduleAfkSkip(roomCode, room);
     reply({ success: true });
   });
 
-  // به‌روزرسانی نقشه/سرباز/کارت/انتخاب‌ها توسط بازیکن نوبت‌دار
-  // فیلدهای phase / activePlayerIndex / turnNumber / diceResult / log / winner هرگز از کلاینت پذیرفته نمی‌شوند
   socket.on('update_game_state', ({ roomCode, newState, baseVersion } = {}, callback) => {
     const reply = safeCallback(callback);
     const room = rooms[roomCode];
@@ -898,7 +848,7 @@ io.on('connection', (socket) => {
     next.winner = current.winner || null;
     next.winnerInfo = current.winnerInfo || null;
     next.eliminatedBy = current.eliminatedBy || {};
-    next.players = current.players; // کارت‌ها فقط از مسیر سرور تغییر می‌کنند
+    next.players = current.players;
     next.cardTradeCount = current.cardTradeCount || 0;
     next.conqueredTerritoryThisTurn = !!current.conqueredTerritoryThisTurn;
     next.version = (current.version || 0) + 1;
@@ -931,7 +881,6 @@ io.on('connection', (socket) => {
     reply({ success: ok, message: ok ? undefined : 'روم یافت نشد.' });
   });
 
-  // حذف همه‌ی رومهایی که هیچ بازیکن آنلاینی ندارند
   socket.on('admin_delete_idle_rooms', ({ adminSecret } = {}, callback) => {
     const reply = safeCallback(callback);
     if (!checkAdmin(socket, adminSecret)) return reply({ success: false, message: 'رمز عبور ادمین اشتباه است!' });
@@ -943,7 +892,6 @@ io.on('connection', (socket) => {
     reply({ success: true, removed });
   });
 
-  // مبادله‌ی کارت: فقط بازیکن نوبت‌دار، فقط در فاز تقویت؛ پاداش را خود سرور حساب می‌کند
   socket.on('trade_cards', ({ roomCode, cardIds } = {}, callback) => {
     const reply = safeCallback(callback);
     const room = rooms[roomCode];
@@ -989,5 +937,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`[server v5 - admin rooms/ui upgrade] سرور روی پورت ${PORT} فعال است.`);
+  console.log(`[server v6 - attacker dice selection] سرور روی پورت ${PORT} فعال است.`);
 });
