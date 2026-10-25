@@ -33,16 +33,16 @@ export const TERRITORIES: TerritoryDefinition[] = [
   { id: "brazil", name: "Brazil", continentId: "sa", neighbors: ["venezuela", "peru", "argentina", "north_africa"], labelPosition: { x: 307, y: 402 } },
   { id: "argentina", name: "Argentina", continentId: "sa", neighbors: ["peru", "brazil"], labelPosition: { x: 240, y: 531 } },
 
-  // اروپا (۷)
+  // اروپا (۷) - اصلاح و متقارن‌سازی مرزهای اروپا
   { id: "iceland", name: "Iceland", continentId: "eu", neighbors: ["greenland", "great_britain", "scandinavia"], labelPosition: { x: 424, y: 136 } },
-  { id: "scandinavia", name: "Scandinavia", continentId: "eu", neighbors: ["iceland", "great_britain", "northern_europe", "ukraine"], labelPosition: { x: 499, y: 124 } },
+  { id: "scandinavia", name: "Scandinavia", continentId: "eu", neighbors: ["iceland", "northern_europe", "ukraine"], labelPosition: { x: 499, y: 124 } },
   { id: "great_britain", name: "Great Britain", continentId: "eu", neighbors: ["iceland", "western_europe", "northern_europe"], labelPosition: { x: 428, y: 196 } },
-  { id: "northern_europe", name: "N. Europe", continentId: "eu", neighbors: ["iceland", "great_britain", "western_europe", "southern_europe", "ukraine"], labelPosition: { x: 475, y: 206 } },
+  { id: "northern_europe", name: "N. Europe", continentId: "eu", neighbors: ["scandinavia", "great_britain", "western_europe", "southern_europe", "ukraine"], labelPosition: { x: 475, y: 206 } },
   { id: "western_europe", name: "W. Europe", continentId: "eu", neighbors: ["great_britain", "northern_europe", "southern_europe", "north_africa"], labelPosition: { x: 431, y: 256 } },
   { id: "southern_europe", name: "S. Europe", continentId: "eu", neighbors: ["western_europe", "northern_europe", "ukraine", "north_africa", "egypt", "middle_east"], labelPosition: { x: 494, y: 248 } },
   { id: "ukraine", name: "Ukraine", continentId: "eu", neighbors: ["scandinavia", "northern_europe", "southern_europe", "ural", "afghanistan", "middle_east"], labelPosition: { x: 571, y: 157 } },
 
-  // آفریقا (۶)
+  // آفریقا (۶) - اصلاح ارتباط خاورمیانه و شرق آفریقا
   { id: "north_africa", name: "N. Africa", continentId: "af", neighbors: ["brazil", "western_europe", "southern_europe", "egypt", "east_africa", "congo"], labelPosition: { x: 421, y: 333 } },
   { id: "egypt", name: "Egypt", continentId: "af", neighbors: ["north_africa", "southern_europe", "middle_east", "east_africa"], labelPosition: { x: 502, y: 316 } },
   { id: "east_africa", name: "E. Africa", continentId: "af", neighbors: ["north_africa", "egypt", "middle_east", "congo", "south_africa", "madagascar"], labelPosition: { x: 537, y: 386 } },
@@ -50,19 +50,19 @@ export const TERRITORIES: TerritoryDefinition[] = [
   { id: "south_africa", name: "S. Africa", continentId: "af", neighbors: ["congo", "east_africa", "madagascar"], labelPosition: { x: 490, y: 506 } },
   { id: "madagascar", name: "Madagascar", continentId: "af", neighbors: ["east_africa", "south_africa"], labelPosition: { x: 579, y: 510 } },
 
-  // آسیا (۱۲)
+  // آسیا (۱۲) - اصلاح ارتباط ژاپن و مغولستان
   { id: "ural", name: "Ural", continentId: "as", neighbors: ["ukraine", "siberian", "china", "afghanistan"], labelPosition: { x: 665, y: 149 } },
   { id: "siberian", name: "Siberia", continentId: "as", neighbors: ["ural", "yakutsk", "irkutsk", "mongolia", "china"], labelPosition: { x: 725, y: 109 } },
   { id: "yakutsk", name: "Yakutsk", continentId: "as", neighbors: ["siberian", "kamchatka", "irkutsk"], labelPosition: { x: 850, y: 99 } },
   { id: "kamchatka", name: "Kamchatka", continentId: "as", neighbors: ["yakutsk", "irkutsk", "mongolia", "japan", "alaska"], labelPosition: { x: 925, y: 116 } },
   { id: "irkutsk", name: "Irkutsk", continentId: "as", neighbors: ["siberian", "yakutsk", "kamchatka", "mongolia"], labelPosition: { x: 800, y: 170 } },
-  { id: "mongolia", name: "Mongolia", continentId: "as", neighbors: ["siberian", "irkutsk", "kamchatka", "china"], labelPosition: { x: 825, y: 203 } },
+  { id: "mongolia", name: "Mongolia", continentId: "as", neighbors: ["siberian", "irkutsk", "kamchatka", "china", "japan"], labelPosition: { x: 825, y: 203 } },
   { id: "japan", name: "Japan", continentId: "as", neighbors: ["kamchatka", "mongolia"], labelPosition: { x: 876, y: 258 } },
   { id: "afghanistan", name: "Afghanistan", continentId: "as", neighbors: ["ukraine", "ural", "china", "india", "middle_east"], labelPosition: { x: 646, y: 250 } },
   { id: "china", name: "China", continentId: "as", neighbors: ["ural", "siberian", "mongolia", "india", "siam", "afghanistan"], labelPosition: { x: 740, y: 260 } },
   { id: "india", name: "India", continentId: "as", neighbors: ["afghanistan", "china", "siam", "middle_east"], labelPosition: { x: 669, y: 305 } },
   { id: "siam", name: "Siam", continentId: "as", neighbors: ["china", "india", "indonesia"], labelPosition: { x: 758, y: 328 } },
-  { id: "middle_east", name: "Middle East", continentId: "as", neighbors: ["southern_europe", "ukraine", "afghanistan", "india", "egypt"], labelPosition: { x: 572, y: 287 } },
+  { id: "middle_east", name: "Middle East", continentId: "as", neighbors: ["southern_europe", "ukraine", "afghanistan", "india", "egypt", "east_africa"], labelPosition: { x: 572, y: 287 } },
 
   // استرالیا (۴)
   { id: "indonesia", name: "Indonesia", continentId: "au", neighbors: ["siam", "new_guinea", "western_australia"], labelPosition: { x: 792, y: 403 } },
