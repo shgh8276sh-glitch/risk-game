@@ -132,6 +132,7 @@ function clearSelections(state) {
   state.attackTargetId = null;
   state.fortifySourceId = null;
   state.reinforcementHistory = [];
+  state.pendingConquest = null;
 }
 
 function shuffle(arr) {
@@ -383,7 +384,6 @@ function scheduleAfkSkip(roomCode, room) {
   }, AFK_SKIP_MS);
 }
 
-// محاسبه نبرد با پشتیبانی از انتخاب تعداد تاس مهاجم
 function resolveCombat(attackerArmies, defenderArmies, requestedAttackerDice) {
   const maxPossibleAttackerDice = Math.min(attackerArmies - 1, 3);
   const attackerDiceCount = Math.max(1, Math.min(requestedAttackerDice || maxPossibleAttackerDice, maxPossibleAttackerDice));
@@ -403,7 +403,7 @@ function resolveCombat(attackerArmies, defenderArmies, requestedAttackerDice) {
     }
   }
 
-  return { attackerRolls, defenderRolls, attackerLosses, defenderLosses };
+  return { attackerRolls, defenderRolls, attackerLosses, defenderLosses, attackerDiceCount };
 }
 
 function applyAutoDefender(room) {
@@ -434,23 +434,53 @@ function maybeResolveCombat(roomCode, room) {
       const newDefenderArmies = defender.armies - combat.defenderLosses;
 
       let newTerritories = { ...state.territories };
+      let pendingConquest = null;
+
       if (newDefenderArmies <= 0) {
-        newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - 1 };
-        newTerritories[state.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: 1 };
+        // فتح کامل انجام شده است. طبق قانون ریسک:
+        // حداقل به تعداد تاس‌های پرتاب‌شده مهاجم، سرباز وارد منطقه جدید می‌شود.
+        const minOccupy = combat.attackerDiceCount;
+        const maxOccupy = newAttackerArmies - 1;
+
+        if (maxOccupy >= minOccupy) {
+          // اگر مهاجم بیش از حداقل نیرو دارد، منتظر انتخاب او می‌مانیم (یا پیش‌فرض حداقل)
+          newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - minOccupy };
+          newTerritories[state.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: minOccupy };
+          
+          pendingConquest = {
+            fromId: state.selectedTerritoryId,
+            toId: state.attackTargetId,
+            fromArmies: newAttackerArmies - minOccupy,
+            toArmies: minOccupy,
+            min: minOccupy,
+            max: maxOccupy,
+            amount: minOccupy,
+          };
+        } else {
+          // حالت اجباری (فقط یک واحد برای انتقال می‌ماند)
+          newTerritories[state.selectedTerritoryId] = { ...attacker, armies: 1 };
+          newTerritories[state.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: newAttackerArmies - 1 };
+        }
       } else {
         newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
         newTerritories[state.attackTargetId] = { id: defender.id, ownerId: defender.ownerId, armies: newDefenderArmies };
       }
 
       state.territories = newTerritories;
-      state.selectedTerritoryId = null;
-      state.attackTargetId = null;
+      state.pendingConquest = pendingConquest;
+
+      if (!pendingConquest) {
+        state.selectedTerritoryId = null;
+        state.attackTargetId = null;
+      }
+
       state.version = (state.version || 0) + 1;
       state.diceResult = {
         id: state.version,
         attacker: combat.attackerRolls,
         defender: combat.defenderRolls,
-        message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد!' : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
+        message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد! تعداد نیروهای ورودی را تعیین کنید.' : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
+        conquered: newDefenderArmies <= 0,
       };
 
       if (newDefenderArmies <= 0) {
@@ -783,6 +813,36 @@ io.on('connection', (socket) => {
     maybeResolveCombat(roomCode, room);
   });
 
+  // رویداد تایید انتقال نیرو بعد از فتح موفق
+  socket.on('confirm_occupy', ({ roomCode, amount } = {}, callback) => {
+    const reply = safeCallback(callback);
+    const room = rooms[roomCode];
+    if (!room || !room.gameState) return reply({ success: false, message: 'بازی یافت نشد.' });
+    if (!isActivePlayerSocket(room, socket, roomCode)) return reply({ success: false, message: 'نوبت شما نیست.' });
+
+    const state = room.gameState;
+    const pc = state.pendingConquest;
+    if (!pc) return reply({ success: false, message: 'مرحله‌ي انتقالی وجود ندارد.' });
+
+    const amt = Math.max(pc.min, Math.min(pc.max, Number(amount) || pc.min));
+    const diff = amt - pc.min;
+
+    const fromTerr = state.territories[pc.fromId];
+    const toTerr = state.territories[pc.toId];
+
+    if (fromTerr && toTerr) {
+      state.territories[pc.fromId] = { ...fromTerr, armies: fromTerr.armies - diff };
+      state.territories[pc.toId] = { ...toTerr, armies: toTerr.armies + diff };
+    }
+
+    state.pendingConquest = null;
+    state.selectedTerritoryId = null;
+    state.attackTargetId = null;
+
+    commitState(roomCode, room);
+    reply({ success: true });
+  });
+
   socket.on('next_phase_or_turn', ({ roomCode } = {}, callback) => {
     const reply = safeCallback(callback);
     const room = rooms[roomCode];
@@ -797,6 +857,9 @@ io.on('connection', (socket) => {
     }
     if (!isActivePlayerSocket(room, socket, roomCode)) {
       return reply({ success: false, message: 'نوبت شما نیست.', state: clone(state) });
+    }
+    if (state.pendingConquest) {
+      return reply({ success: false, message: 'ابتدا باید تعداد سربازان ارسالی به منطقه فتح‌شده را تعیین کنید.', state: clone(state) });
     }
 
     if (state.phase === 'reinforce') {
@@ -851,6 +914,7 @@ io.on('connection', (socket) => {
     next.players = current.players;
     next.cardTradeCount = current.cardTradeCount || 0;
     next.conqueredTerritoryThisTurn = !!current.conqueredTerritoryThisTurn;
+    next.pendingConquest = current.pendingConquest || null;
     next.version = (current.version || 0) + 1;
 
     room.gameState = next;
@@ -937,5 +1001,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`[server v6 - attacker dice selection] سرور روی پورت ${PORT} فعال است.`);
+  console.log(`[server v7 - full integrated] سرور روی پورت ${PORT} فعال است.`);
 });

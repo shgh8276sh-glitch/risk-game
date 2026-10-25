@@ -5,6 +5,7 @@ import { Map } from '@/components/Map';
 import { DiceModal } from '@/components/DiceModal';
 import { CardModal } from '@/components/CardModal';
 import { HelpModal } from '@/components/HelpModal';
+import { OccupyModal } from '@/components/OccupyModal';
 import { initializeGame } from '@/game/engine/setup';
 import { GameState, Card } from '@/game/engine/state';
 import { TERRITORIES, CONTINENTS } from '@/game/data/territories';
@@ -12,6 +13,7 @@ import { socket } from '@/game/socket';
 import { FortifyModal } from '@/components/FortifyModal';
 import { AdminRoomsPanel, AdminRoomInfo } from '@/components/AdminRoomsPanel';
 import { getMissionProgress } from '@/game/engine/missionProgress';
+import { getMusicEngine, MusicState } from '@/game/engine/musicEngine';
 
 const getVersion = (s: any): number => (s && typeof s.version === 'number' ? s.version : 0);
 
@@ -37,15 +39,6 @@ const PHASES = [
   { id: 'fortify', icon: '🧭', label: 'جابجایی' },
 ] as const;
 
-const CONTINENT_LABEL: Record<string, string> = {
-  na: 'آ.شمالی',
-  sa: 'آ.جنوبی',
-  eu: 'اروپا',
-  af: 'آفریقا',
-  as: 'آسیا',
-  au: 'استرالیا',
-};
-
 type ToastKind = 'info' | 'success' | 'error';
 type ToastItem = { id: number; text: string; kind: ToastKind };
 type ConnStatus = 'connecting' | 'connected' | 'reconnecting';
@@ -70,6 +63,11 @@ export default function RiskGamePage() {
   const [fortifyTargetId, setFortifyTargetId] = useState<string | null>(null);
   const [fortifyAmount, setFortifyAmount] = useState<number>(1);
 
+  // حالت‌های موزیک
+  const music = getMusicEngine();
+  const [musicState, setMusicState] = useState<MusicState>(music.getState());
+  const [showMusicMenu, setShowMusicMenu] = useState<boolean>(false);
+
   const [booting, setBooting] = useState<boolean>(true);
   const [connStatus, setConnStatus] = useState<ConnStatus>('connecting');
   const [inLobby, setInLobby] = useState<boolean>(true);
@@ -93,6 +91,8 @@ export default function RiskGamePage() {
   const [attackerReady, setAttackerReady] = useState<boolean>(false);
   const [defenderReady, setDefenderReady] = useState<boolean>(false);
   const [selectedDiceCount, setSelectedDiceCount] = useState<number>(3);
+  const [occupyAmount, setOccupyAmount] = useState<number>(1);
+  const [occupyBusy, setOccupyBusy] = useState<boolean>(false);
 
   const myNameRef = useRef<string>('');
   const rejoinInFlight = useRef<boolean>(false);
@@ -104,6 +104,10 @@ export default function RiskGamePage() {
   const prevStatusRef = useRef<Record<string, string>>({});
   const prevTurnKeyRef = useRef<string | null>(null);
   const prevCardCountRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return music.subscribe(() => setMusicState(music.getState()));
+  }, [music]);
 
   const pushToast = (text: string, kind: ToastKind = 'info') => {
     const id = ++toastIdRef.current;
@@ -130,7 +134,9 @@ export default function RiskGamePage() {
     if (!incoming.attackTargetId || !incoming.selectedTerritoryId) {
       setAttackerReady(false);
       setDefenderReady(false);
-      setSelectedDiceCount(3);
+    }
+    if (incoming.pendingConquest) {
+      setOccupyAmount(incoming.pendingConquest.min);
     }
   };
 
@@ -214,14 +220,14 @@ export default function RiskGamePage() {
           setTimeout(rejoinRoom, 3000);
         } else {
           setBooting(false);
-          setErrorMessage('اتصال به سرور برقرار نشد. کمی بعد دوباره امتحان کنید.');
+          setErrorMessage('اتصال به سرور برقرار نشد.');
         }
       } else if (res?.code === 'ROOM_NOT_FOUND') {
         resetToLobby();
-        setErrorMessage('این روم دیگر وجود ندارد. یک روم جدید بسازید.');
+        setErrorMessage('این روم دیگر وجود ندارد.');
         setBooting(false);
       } else {
-        setErrorMessage(res?.message || 'ورود مجدد به روم ممکن نشد.');
+        setErrorMessage(res?.message || 'ورود مجدد ممکن نشد.');
         setBooting(false);
       }
     } finally {
@@ -383,31 +389,11 @@ export default function RiskGamePage() {
       setShowLeaveModal(false);
       setShowFortifyModal(false);
       setShowAdminPanel(false);
+      setShowMusicMenu(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-
-  useEffect(() => {
-    if (connStatus === 'connected') {
-      setShowConnPill(false);
-      return;
-    }
-    const t = setTimeout(() => setShowConnPill(true), 8000);
-    return () => clearTimeout(t);
-  }, [connStatus]);
-
-  const myCardCount = gameState?.players.find((p) => p.name === username)?.cards.length ?? null;
-  useEffect(() => {
-    if (myCardCount === null) {
-      prevCardCountRef.current = null;
-      return;
-    }
-    if (prevCardCountRef.current !== null && myCardCount > prevCardCountRef.current) {
-      pushToast('🃏 به‌خاطر فتح در نوبت قبل، یک کارت جدید گرفتید!', 'success');
-    }
-    prevCardCountRef.current = myCardCount;
-  }, [myCardCount]);
 
   const handleCreateRoom = async () => {
     setErrorMessage('');
@@ -418,7 +404,7 @@ export default function RiskGamePage() {
     }
     if (!socket.connected) {
       socket.connect();
-      setErrorMessage('ارتباط با سرور برقرار نیست. چند ثانیه بعد دوباره امتحان کنید.');
+      setErrorMessage('ارتباط با سرور برقرار نیست.');
       return;
     }
     setIsLoading(true);
@@ -446,7 +432,7 @@ export default function RiskGamePage() {
     }
     if (!socket.connected) {
       socket.connect();
-      setErrorMessage('ارتباط با سرور برقرار نیست. چند ثانیه بعد دوباره امتحان کنید.');
+      setErrorMessage('ارتباط با سرور برقرار نیست.');
       return;
     }
     setIsLoading(true);
@@ -569,11 +555,39 @@ export default function RiskGamePage() {
 
   const overlays = (
     <>
-      {connStatus !== 'connected' && showConnPill && (
-        <div className="fixed bottom-3 left-3 z-[60] pointer-events-none text-[10px] font-bold text-amber-200/90 bg-[#2b1e16]/90 border border-amber-700/50 rounded-full px-3 py-1 shadow" dir="rtl">
-          {connStatus === 'connecting' ? '⏳ در حال اتصال به سرور...' : '🔌 اتصال ضعیف...'}
-        </div>
-      )}
+      <div className="fixed bottom-4 left-4 z-[60] flex items-center gap-2 bg-[#2b1e16] border border-[#8c653d] px-3 py-1.5 rounded-full shadow-lg" dir="rtl">
+        <button
+          onClick={() => void music.toggle()}
+          className="text-xs font-bold text-amber-200 hover:text-white flex items-center gap-1.5 cursor-pointer"
+          title={musicState.playing ? 'توقف موسیقی' : 'پخش موسیقی'}
+        >
+          <span>{musicState.playing ? '🎵' : '🔇'}</span>
+          <span className="hidden sm:inline">{musicState.playing ? (musicState.trackName || 'موسیقی حماسی') : 'موسیقی'}</span>
+        </button>
+        {musicState.playing && (
+          <button onClick={() => music.next()} className="text-[11px] text-amber-400 hover:text-white cursor-pointer" title="قطعه‌ی بعد">
+            ⏭️
+          </button>
+        )}
+        <button onClick={() => setShowMusicMenu((v) => !v)} className="text-[11px] text-amber-300/80 hover:text-white cursor-pointer" title="تنظیم صدا">
+          ⚙️
+        </button>
+        {showMusicMenu && (
+          <div className="absolute bottom-12 left-0 bg-[#2b1e16] border-2 border-amber-600 p-3 rounded-xl shadow-2xl flex flex-col gap-2 min-w-[140px]">
+            <p className="text-[11px] font-bold text-amber-400">ولوم موسیقی</p>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={musicState.volume}
+              onChange={(e) => music.setVolume(parseFloat(e.target.value))}
+              className="accent-amber-500 cursor-pointer"
+            />
+          </div>
+        )}
+      </div>
+
       <div className="fixed bottom-4 inset-x-0 z-[70] flex flex-col items-center gap-2 pointer-events-none px-4" dir="rtl">
         {toasts.map((t) => (
           <div key={t.id} className={`max-w-sm w-full text-xs font-bold px-4 py-3 rounded-xl shadow-2xl border pointer-events-auto ${t.kind === 'success' ? 'bg-emerald-900 border-emerald-500 text-emerald-100' : t.kind === 'error' ? 'bg-red-900 border-red-500 text-red-100' : 'bg-[#2b1e16] border-amber-600 text-amber-100'}`}>
@@ -712,6 +726,7 @@ export default function RiskGamePage() {
 
   const currentDiceId: number | null = (gameState as any).diceResult?.id ?? null;
   const showDiceModal = !!gameState.diceResult && currentDiceId !== dismissedDiceId;
+  const pendingConquest = (gameState as any).pendingConquest;
 
   const updateStateAndSync = (newState: GameState) => {
     if (!socket.connected) {
@@ -778,9 +793,6 @@ export default function RiskGamePage() {
       const territoryData = TERRITORIES.find(t => t.id === currentId);
       if (territoryData) {
         let neighbors = [...territoryData.neighbors];
-        if (currentId === 'japan' && !neighbors.includes('mongolia')) neighbors.push('mongolia');
-        if (currentId === 'mongolia' && !neighbors.includes('japan')) neighbors.push('japan');
-
         for (const neighborId of neighbors) {
           const neighborTerritory = gameState.territories[neighborId];
           if (neighborTerritory && neighborTerritory.ownerId === ownerId && !visited.has(neighborId)) {
@@ -794,7 +806,7 @@ export default function RiskGamePage() {
   };
 
   const handleTerritoryClick = (id: string) => {
-    if (!isMyTurn || winner) return;
+    if (!isMyTurn || winner || pendingConquest) return;
     const territory = gameState.territories[id];
 
     if (gameState.phase === 'reinforce') {
@@ -828,8 +840,6 @@ export default function RiskGamePage() {
       } else {
         const selected = TERRITORIES.find((t) => t.id === gameState.selectedTerritoryId);
         let selectedNeighbors = selected ? [...selected.neighbors] : [];
-        if (gameState.selectedTerritoryId === 'japan') selectedNeighbors.push('mongolia');
-        if (gameState.selectedTerritoryId === 'mongolia') selectedNeighbors.push('japan');
 
         if (selected && selectedNeighbors.includes(id) && territory.ownerId !== activePlayer.id) {
           setAttackerReady(false);
@@ -903,6 +913,17 @@ export default function RiskGamePage() {
     setFortifyTargetId(null);
   };
 
+  const confirmOccupy = () => {
+    if (!pendingConquest) return;
+    setOccupyBusy(true);
+    socket.emit('confirm_occupy', { roomCode: currentRoomCode, amount: occupyAmount }, (res: any) => {
+      setOccupyBusy(false);
+      if (res && !res.success) {
+        pushToast(res.message || 'خطا در ثبت نیروها.', 'error');
+      }
+    });
+  };
+
   const handleTradeCards = async (selectedCards: Card[], _bonusArmies: number) => {
     if (!isMyTurn || gameState.phase !== 'reinforce' || winner) return;
     if (!socket.connected) {
@@ -920,7 +941,7 @@ export default function RiskGamePage() {
   };
 
   const nextPhaseOrTurn = async () => {
-    if (!isMyTurn || isAdvancing || winner) return;
+    if (!isMyTurn || isAdvancing || winner || pendingConquest) return;
 
     if (gameState.phase === 'attack' && (gameState.selectedTerritoryId || gameState.attackTargetId)) {
       pushToast('⚠️ ابتدا حمله را لغو کنید.', 'error');
@@ -955,7 +976,7 @@ export default function RiskGamePage() {
   const formatTime = (t: number) => new Date(t).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <main className="flex min-h-screen flex-col items-center p-6 bg-[#1a120b] text-amber-100 relative" dir="rtl">
+    <main className="flex min-h-screen flex-col items-center p-6 bg-[#1a120b] text-amber-100 relative" dir="rtl" onClick={() => { if (!musicState.playing && !music.getState().playing) void music.play(); }}>
       {overlays}
 
       <button onClick={() => setShowHelpModal(true)} className="fixed top-4 right-4 z-40 bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer">❓ راهنما</button>
@@ -1003,7 +1024,7 @@ export default function RiskGamePage() {
           <button onClick={() => setShowMissionModal(true)} className="px-3 py-2 bg-amber-700 hover:bg-amber-600 text-xs font-bold rounded-lg cursor-pointer">📜 ماموریت</button>
           <button onClick={() => setShowLogPanel((v) => !v)} className={`px-3 py-2 text-xs font-bold rounded-lg cursor-pointer ${showLogPanel ? 'bg-amber-600' : 'bg-[#3a2a1d]'} border border-[#8c653d]/60`}>🧾 گزارش</button>
           {isMyTurn && (
-            <button onClick={nextPhaseOrTurn} disabled={isAdvancing} className={`px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-xs font-bold rounded-lg text-white shadow ${isAdvancing ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}>
+            <button onClick={nextPhaseOrTurn} disabled={isAdvancing || !!pendingConquest} className={`px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-xs font-bold rounded-lg text-white shadow ${isAdvancing || pendingConquest ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}>
               {isAdvancing ? 'در حال انتقال...' : 'مرحله بعد ➔'}
             </button>
           )}
@@ -1047,7 +1068,22 @@ export default function RiskGamePage() {
         <FortifyModal sourceName={territoryName(gameState.fortifySourceId)} targetName={territoryName(fortifyTargetId)} sourceArmies={gameState.territories[gameState.fortifySourceId]?.armies ?? 1} targetArmies={gameState.territories[fortifyTargetId]?.armies ?? 0} amount={fortifyAmount} onChange={setFortifyAmount} onConfirm={executeFortifyTransfer} onCancel={() => setShowFortifyModal(false)} />
       )}
 
-      {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && (
+      {pendingConquest && isAttacker && (
+        <OccupyModal
+          fromName={territoryName(pendingConquest.fromId)}
+          toName={territoryName(pendingConquest.toId)}
+          fromArmies={pendingConquest.fromArmies + occupyAmount}
+          toArmies={pendingConquest.toArmies}
+          min={pendingConquest.min}
+          max={pendingConquest.max}
+          amount={occupyAmount}
+          onChange={setOccupyAmount}
+          onConfirm={confirmOccupy}
+          busy={occupyBusy}
+        />
+      )}
+
+      {gameState.phase === 'attack' && gameState.selectedTerritoryId && gameState.attackTargetId && !pendingConquest && (
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex flex-wrap gap-3 justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">
             ⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}!
@@ -1055,7 +1091,6 @@ export default function RiskGamePage() {
           </span>
           
           <div className="flex items-center gap-3">
-            {/* انتخاب تعداد تاس مهاجم */}
             {isAttacker && (
               <div className="flex items-center gap-1.5 bg-[#1a120b] p-1.5 rounded-xl border border-red-800">
                 <span className="text-[11px] text-amber-300 font-bold px-1">تاس:</span>
@@ -1121,7 +1156,17 @@ export default function RiskGamePage() {
       )}
 
       {showDiceModal && gameState.diceResult && (
-        <DiceModal attackerRolls={gameState.diceResult.attacker} defenderRolls={gameState.diceResult.defender} message={gameState.diceResult.message} onClose={() => setDismissedDiceId(currentDiceId ?? -1)} />
+        <DiceModal
+          attackerRolls={gameState.diceResult.attacker}
+          defenderRolls={gameState.diceResult.defender}
+          message={gameState.diceResult.message}
+          attackerColor={attackerPlayer?.color}
+          defenderColor={defenderPlayer?.color}
+          attackerName={attackerPlayer?.name}
+          defenderName={defenderPlayer?.name}
+          conquered={gameState.diceResult.conquered}
+          onClose={() => setDismissedDiceId(currentDiceId ?? -1)}
+        />
       )}
 
       {showLeaveModal && (
