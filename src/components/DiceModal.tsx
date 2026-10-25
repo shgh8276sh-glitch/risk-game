@@ -25,17 +25,18 @@ export const DiceModal: React.FC<DiceModalProps> = ({
 
   useEffect(() => {
     setRolling(true);
+    // انیمیشن چرخش روان و سریع برای بالا بردن سرعت بازی و جلوگیری از لگ
     const interval = setInterval(() => {
       setDisplayAttacker(attackerRolls.map(() => Math.floor(Math.random() * 6) + 1));
       setDisplayDefender(defenderRolls.map(() => Math.floor(Math.random() * 6) + 1));
-    }, 120);
+    }, 90);
 
     const timer = setTimeout(() => {
       clearInterval(interval);
       setDisplayAttacker(attackerRolls);
       setDisplayDefender(defenderRolls);
       setRolling(false);
-    }, 1200);
+    }, 1000); // زمان چرخش ۱ ثانیه برای حفظ سرعت و جذابیت
 
     return () => {
       clearInterval(interval);
@@ -73,7 +74,8 @@ export const DiceModal: React.FC<DiceModalProps> = ({
         </h3>
 
         <div className="grid grid-cols-2 gap-4 bg-[#1a120b] p-4 rounded-xl border border-[#8c653d]">
-          {/* سمت راست: مهاجم */}
+          
+          {/* سمت راست: مهاجم (با رنگ نارنجی غیرمرتبط با بازیکنان) */}
           <div className="flex flex-col items-center gap-2 border-l border-[#8c653d]/40 pl-2">
             <span className="text-xs font-bold text-orange-400 flex items-center gap-1">
               🟧 مهاجم ({attackerName})
@@ -82,8 +84,8 @@ export const DiceModal: React.FC<DiceModalProps> = ({
               {(rolling ? displayAttacker : attackerRolls).map((val, idx) => (
                 <div
                   key={idx}
-                  className={`bg-orange-600 rounded-xl shadow-lg border-2 border-amber-300 flex items-center justify-center ${
-                    rolling ? (idx % 2 === 0 ? 'animate-spin' : 'animate-bounce') : ''
+                  className={`bg-orange-600 rounded-xl shadow-lg border-2 border-amber-300 flex items-center justify-center transition-transform ${
+                    rolling ? (idx % 2 === 0 ? 'animate-spin' : 'animate-bounce') : 'scale-100'
                   }`}
                 >
                   {renderDiceDots(val, true)}
@@ -92,7 +94,7 @@ export const DiceModal: React.FC<DiceModalProps> = ({
             </div>
           </div>
 
-          {/* سمت چپ: مدافع */}
+          {/* سمت چپ: مدافع (با رنگ خاکستری تیره غیرمرتبط با بازیکنان) */}
           <div className="flex flex-col items-center gap-2 pr-2">
             <span className="text-xs font-bold text-gray-300 flex items-center gap-1">
               ⬛ مدافع ({defenderName})
@@ -101,8 +103,8 @@ export const DiceModal: React.FC<DiceModalProps> = ({
               {(rolling ? displayDefender : defenderRolls).map((val, idx) => (
                 <div
                   key={idx}
-                  className={`bg-gray-700 rounded-xl shadow-lg border-2 border-gray-400 flex items-center justify-center ${
-                    rolling ? (idx % 2 === 0 ? 'animate-bounce' : 'animate-spin') : ''
+                  className={`bg-gray-700 rounded-xl shadow-lg border-2 border-gray-400 flex items-center justify-center transition-transform ${
+                    rolling ? (idx % 2 === 0 ? 'animate-bounce' : 'animate-spin') : 'scale-100'
                   }`}
                 >
                   {renderDiceDots(val, false)}
@@ -110,6 +112,7 @@ export const DiceModal: React.FC<DiceModalProps> = ({
               ))}
             </div>
           </div>
+
         </div>
 
         {!rolling && (

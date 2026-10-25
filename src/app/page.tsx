@@ -90,6 +90,8 @@ export default function RiskGamePage() {
   const [attackerReady, setAttackerReady] = useState<boolean>(false);
   const [defenderReady, setDefenderReady] = useState<boolean>(false);
   const [selectedDiceCount, setSelectedDiceCount] = useState<number>(3);
+  const userManuallySetDice = useRef<boolean>(false);
+
   const [occupyAmount, setOccupyAmount] = useState<number>(1);
   const [occupyBusy, setOccupyBusy] = useState<boolean>(false);
 
@@ -132,6 +134,7 @@ export default function RiskGamePage() {
     if (!incoming.attackTargetId || !incoming.selectedTerritoryId) {
       setAttackerReady(false);
       setDefenderReady(false);
+      userManuallySetDice.current = false;
     }
     if (incoming.pendingConquest) {
       setOccupyAmount(incoming.pendingConquest.min);
@@ -151,6 +154,7 @@ export default function RiskGamePage() {
     setAttackerReady(false);
     setDefenderReady(false);
     setSelectedDiceCount(3);
+    userManuallySetDice.current = false;
     setDismissedDiceId(null);
     setWinnerDismissed(false);
     setShowFortifyModal(false);
@@ -174,7 +178,9 @@ export default function RiskGamePage() {
     setIsHost(!!res.you?.isHost);
     setAttackerReady(!!res.attackerReady);
     setDefenderReady(!!res.defenderReady);
-    if (res.attackerSelectedDice) setSelectedDiceCount(res.attackerSelectedDice);
+    if (res.attackerSelectedDice && !userManuallySetDice.current) {
+      setSelectedDiceCount(res.attackerSelectedDice);
+    }
 
     prevStatusRef.current = (res.players || []).reduce((acc: Record<string, string>, p: any) => {
       acc[p.name] = p.status;
@@ -313,6 +319,7 @@ export default function RiskGamePage() {
       setAttackerReady(false);
       setDefenderReady(false);
       setSelectedDiceCount(3);
+      userManuallySetDice.current = false;
       setInLobby(false);
     };
 
@@ -321,7 +328,9 @@ export default function RiskGamePage() {
     const onDiceReady = ({ attackerReady: aReady, defenderReady: dReady, attackerSelectedDice }: any) => {
       setAttackerReady(aReady);
       setDefenderReady(dReady);
-      if (attackerSelectedDice) setSelectedDiceCount(attackerSelectedDice);
+      if (attackerSelectedDice && !userManuallySetDice.current) {
+        setSelectedDiceCount(attackerSelectedDice);
+      }
     };
 
     const onLeftRoom = () => resetToLobby();
@@ -767,6 +776,7 @@ export default function RiskGamePage() {
     } else if (gameState.phase === 'attack') {
       setAttackerReady(false);
       setDefenderReady(false);
+      userManuallySetDice.current = false;
       setSelectedDiceCount(3);
       socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
       socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'defender', readyState: false });
@@ -829,6 +839,7 @@ export default function RiskGamePage() {
       } else if (gameState.selectedTerritoryId === id) {
         setAttackerReady(false);
         setDefenderReady(false);
+        userManuallySetDice.current = false;
         setSelectedDiceCount(3);
         socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
         socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'defender', readyState: false });
@@ -842,6 +853,7 @@ export default function RiskGamePage() {
         if (selected && selectedNeighbors.includes(id) && territory.ownerId !== activePlayer.id) {
           setAttackerReady(false);
           setDefenderReady(false);
+          userManuallySetDice.current = false;
           setSelectedDiceCount(3);
           socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'attacker', readyState: false });
           socket.emit('set_dice_status', { roomCode: currentRoomCode, role: 'defender', readyState: false });
@@ -875,6 +887,17 @@ export default function RiskGamePage() {
   };
 
   const maxAllowedDice = attackerTerritory ? Math.min(attackerTerritory.armies - 1, 3) : 1;
+
+  const handleSelectDice = (num: number) => {
+    userManuallySetDice.current = true;
+    setSelectedDiceCount(num);
+    socket.emit('set_dice_status', {
+      roomCode: currentRoomCode,
+      role: 'attacker',
+      readyState: attackerReady,
+      selectedDice: num,
+    });
+  };
 
   const handleToggleDiceReady = (roleIsAttacker: boolean) => {
     const currentReady = roleIsAttacker ? attackerReady : defenderReady;
@@ -1098,7 +1121,7 @@ export default function RiskGamePage() {
                     <button
                       key={num}
                       disabled={isDisabled}
-                      onClick={() => setSelectedDiceCount(num)}
+                      onClick={() => handleSelectDice(num)}
                       className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${selectedDiceCount === num ? 'bg-amber-500 text-black scale-105 shadow' : isDisabled ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-red-900 text-white hover:bg-red-800'}`}
                     >
                       {num}
