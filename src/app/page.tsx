@@ -17,7 +17,7 @@ import { getMusicEngine, MusicState } from '@/game/engine/musicEngine';
 
 const getVersion = (s: any): number => (s && typeof s.version === 'number' ? s.version : 0);
 
-const emitAck = (event: string, payload: any, timeoutMs = 6000): Promise<any> =>
+const emitAck = (event: string, payload: any, timeoutMs = 8000): Promise<any> =>
   new Promise((resolve) => {
     let settled = false;
     const timer = setTimeout(() => {
@@ -63,7 +63,7 @@ export default function RiskGamePage() {
   const [fortifyTargetId, setFortifyTargetId] = useState<string | null>(null);
   const [fortifyAmount, setFortifyAmount] = useState<number>(1);
 
-  // حالت‌های موسیقی
+  // حالت‌های موزیک
   const music = getMusicEngine();
   const [musicState, setMusicState] = useState<MusicState>(music.getState());
   const [showMusicMenu, setShowMusicMenu] = useState<boolean>(false);
@@ -110,7 +110,7 @@ export default function RiskGamePage() {
   const pushToast = (text: string, kind: ToastKind = 'info') => {
     const id = ++toastIdRef.current;
     setToasts((t) => [...t.slice(-3), { id, text, kind }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
   };
 
   const getOrCreatePlayerId = () => {
@@ -205,7 +205,7 @@ export default function RiskGamePage() {
       const res = await emitAck(
         'join_room',
         { username: savedUsername, playerId: getOrCreatePlayerId(), roomCode: savedRoomCode },
-        8000
+        10000
       );
 
       if (res?.success) {
@@ -214,8 +214,8 @@ export default function RiskGamePage() {
         setBooting(false);
       } else if (res?.timeout) {
         rejoinAttempts.current += 1;
-        if (rejoinAttempts.current < 4) {
-          setTimeout(rejoinRoom, 2000);
+        if (rejoinAttempts.current < 6) {
+          setTimeout(rejoinRoom, 3000);
         } else {
           setBooting(false);
           setErrorMessage('اتصال به سرور برقرار نشد.');
@@ -409,7 +409,7 @@ export default function RiskGamePage() {
     const res = await emitAck(
       'create_room',
       { username: name, playerId: getOrCreatePlayerId(), maxPlayers: 5, adminSecret: adminSecretInput },
-      10000
+      15000
     );
     setIsLoading(false);
     if (res?.success) {
@@ -437,7 +437,7 @@ export default function RiskGamePage() {
     const res = await emitAck(
       'join_room',
       { username: name, playerId: getOrCreatePlayerId(), roomCode: cleanCode },
-      10000
+      15000
     );
     setIsLoading(false);
     if (res?.success) {
@@ -473,7 +473,7 @@ export default function RiskGamePage() {
       return false;
     }
     setAdminLoading(true);
-    const res = await emitAck('admin_list_rooms', { adminSecret: adminSecretInput }, 8000);
+    const res = await emitAck('admin_list_rooms', { adminSecret: adminSecretInput }, 12000);
     setAdminLoading(false);
     if (res?.success) {
       setAdminRooms(res.rooms || []);
@@ -534,7 +534,7 @@ export default function RiskGamePage() {
       await emitAck('leave_room', { roomCode: code }, 5000);
     }
     resetToLobby();
-    pushToast(code ? `از روم خارج شدید.` : 'از روم خارج شدید.', 'info');
+    pushToast(code ? `از روم خارج شدید. برای بازگشت، کد ${code} را وارد کنید.` : 'از روم خارج شدید.', 'info');
   };
 
   const copyText = async (text: string, okMsg: string) => {
@@ -697,6 +697,7 @@ export default function RiskGamePage() {
 
   const isAttacker = attackerPlayer?.name === username;
   const isDefender = defenderPlayer?.name === username;
+  const defenderLeft = !!defenderPlayer && playersList.find((p) => p.name === defenderPlayer.name)?.status === 'left';
 
   const winner = (gameState as any).winnerInfo as { id: string; name: string; color: string; reason?: 'mission' | 'world'; mission?: string } | null | undefined;
   const logEntries: { t: number; text: string }[] = ((gameState as any).log as any[]) || [];
@@ -1084,6 +1085,7 @@ export default function RiskGamePage() {
         <div className="w-full max-w-5xl mb-4 bg-red-950/90 border-2 border-red-600 p-4 rounded-xl flex flex-wrap gap-3 justify-between items-center shadow-lg">
           <span className="text-xs font-bold text-red-200">
             ⚔️ نبرد فعال بین {attackerPlayer?.name} و {defenderPlayer?.name}!
+            {defenderLeft && ' (مدافع آفلاین است)'}
           </span>
           
           <div className="flex items-center gap-3">
