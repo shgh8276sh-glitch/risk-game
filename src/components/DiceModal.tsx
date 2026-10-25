@@ -24,12 +24,11 @@ export const DiceModal: React.FC<DiceModalProps> = ({
   const [displayDefender, setDisplayDefender] = useState<number[]>([]);
 
   useEffect(() => {
-    // شبیه‌سازی انیمیشن چرخش تاس برای ۱.۲ ثانیه
     setRolling(true);
     const interval = setInterval(() => {
       setDisplayAttacker(attackerRolls.map(() => Math.floor(Math.random() * 6) + 1));
       setDisplayDefender(defenderRolls.map(() => Math.floor(Math.random() * 6) + 1));
-    }, 100);
+    }, 120);
 
     const timer = setTimeout(() => {
       clearInterval(interval);
@@ -74,28 +73,38 @@ export const DiceModal: React.FC<DiceModalProps> = ({
         </h3>
 
         <div className="grid grid-cols-2 gap-4 bg-[#1a120b] p-4 rounded-xl border border-[#8c653d]">
-          {/* مهاجم: نارنجی تیره و متمایز از رنگ بازیکنان */}
+          {/* سمت راست: مهاجم */}
           <div className="flex flex-col items-center gap-2 border-l border-[#8c653d]/40 pl-2">
             <span className="text-xs font-bold text-orange-400 flex items-center gap-1">
               🟧 مهاجم ({attackerName})
             </span>
-            <div className={`flex flex-wrap justify-center gap-2 min-h-[55px] items-center ${rolling ? 'animate-spin' : ''}`}>
+            <div className="flex flex-wrap justify-center gap-2 min-h-[55px] items-center">
               {(rolling ? displayAttacker : attackerRolls).map((val, idx) => (
-                <div key={idx} className="bg-orange-600 rounded-xl shadow-lg border-2 border-amber-300 flex items-center justify-center">
+                <div
+                  key={idx}
+                  className={`bg-orange-600 rounded-xl shadow-lg border-2 border-amber-300 flex items-center justify-center ${
+                    rolling ? (idx % 2 === 0 ? 'animate-spin' : 'animate-bounce') : ''
+                  }`}
+                >
                   {renderDiceDots(val, true)}
                 </div>
               ))}
             </div>
           </div>
 
-          {/* مدافع: خاکستری شیک و متمایز */}
+          {/* سمت چپ: مدافع */}
           <div className="flex flex-col items-center gap-2 pr-2">
             <span className="text-xs font-bold text-gray-300 flex items-center gap-1">
               ⬛ مدافع ({defenderName})
             </span>
-            <div className={`flex flex-wrap justify-center gap-2 min-h-[55px] items-center ${rolling ? 'animate-bounce' : ''}`}>
+            <div className="flex flex-wrap justify-center gap-2 min-h-[55px] items-center">
               {(rolling ? displayDefender : defenderRolls).map((val, idx) => (
-                <div key={idx} className="bg-gray-700 rounded-xl shadow-lg border-2 border-gray-400 flex items-center justify-center">
+                <div
+                  key={idx}
+                  className={`bg-gray-700 rounded-xl shadow-lg border-2 border-gray-400 flex items-center justify-center ${
+                    rolling ? (idx % 2 === 0 ? 'animate-bounce' : 'animate-spin') : ''
+                  }`}
+                >
                   {renderDiceDots(val, false)}
                 </div>
               ))}
