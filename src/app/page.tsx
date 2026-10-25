@@ -1164,7 +1164,6 @@ export default function RiskGamePage() {
           defenderColor={defenderPlayer?.color}
           attackerName={attackerPlayer?.name}
           defenderName={defenderPlayer?.name}
-          conquered={gameState.diceResult.conquered}
           onClose={() => setDismissedDiceId(currentDiceId ?? -1)}
         />
       )}
