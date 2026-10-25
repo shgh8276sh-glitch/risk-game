@@ -437,13 +437,14 @@ function maybeResolveCombat(roomCode, room) {
       let pendingConquest = null;
 
       if (newDefenderArmies <= 0) {
-        // فتح کامل انجام شده است. طبق قانون ریسک:
-        // حداقل به تعداد تاس‌های پرتاب‌شده مهاجم، سرباز وارد منطقه جدید می‌شود.
+        // قانون فتح ریسک:
+        // حداقل سرباز ورودی = تعداد تاس‌های پرتاب شده مهاجم (combat.attackerDiceCount)
+        // حداکثر سرباز ورودی = سربازان باقی مانده مهاجم منهای ۱
         const minOccupy = combat.attackerDiceCount;
         const maxOccupy = newAttackerArmies - 1;
 
-        if (maxOccupy >= minOccupy) {
-          // اگر مهاجم بیش از حداقل نیرو دارد، منتظر انتخاب او می‌مانیم (یا پیش‌فرض حداقل)
+        if (maxOccupy > minOccupy) {
+          // اگر سرباز اضافی برای انتقال وجود داشته باشد، مودال انتخاب باز می‌شود
           newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies - minOccupy };
           newTerritories[state.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: minOccupy };
           
@@ -457,9 +458,9 @@ function maybeResolveCombat(roomCode, room) {
             amount: minOccupy,
           };
         } else {
-          // حالت اجباری (فقط یک واحد برای انتقال می‌ماند)
-          newTerritories[state.selectedTerritoryId] = { ...attacker, armies: 1 };
-          newTerritories[state.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: newAttackerArmies - 1 };
+          // انتقال مستقیم و دقیق با حداقل مجاز
+          newTerritories[state.selectedTerritoryId] = { ...attacker, armies: Math.max(1, newAttackerArmies - minOccupy) };
+          newTerritories[state.attackTargetId] = { id: defender.id, ownerId: attacker.ownerId, armies: minOccupy };
         }
       } else {
         newTerritories[state.selectedTerritoryId] = { ...attacker, armies: newAttackerArmies };
@@ -479,7 +480,7 @@ function maybeResolveCombat(roomCode, room) {
         id: state.version,
         attacker: combat.attackerRolls,
         defender: combat.defenderRolls,
-        message: newDefenderArmies <= 0 ? '🎉 منطقه فتح شد! تعداد نیروهای ورودی را تعیین کنید.' : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
+        message: newDefenderArmies <= 0 ? `🎉 منطقه فتح شد! (${combat.attackerDiceCount} سرباز منتقل گردید)` : `تلفات مهاجم: ${combat.attackerLosses} | مدافع: ${combat.defenderLosses}`,
         conquered: newDefenderArmies <= 0,
       };
 
@@ -813,7 +814,6 @@ io.on('connection', (socket) => {
     maybeResolveCombat(roomCode, room);
   });
 
-  // رویداد تایید انتقال نیرو بعد از فتح موفق
   socket.on('confirm_occupy', ({ roomCode, amount } = {}, callback) => {
     const reply = safeCallback(callback);
     const room = rooms[roomCode];
@@ -1001,5 +1001,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`[server v7 - full integrated] سرور روی پورت ${PORT} فعال است.`);
+  console.log(`[server] سرور بهینه‌شده ریسک فعال شد.`);
 });

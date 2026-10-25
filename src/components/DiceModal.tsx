@@ -1,143 +1,92 @@
-import React, { useEffect, useState } from 'react';
+'use client';
+
+import React from 'react';
 
 interface DiceModalProps {
   attackerRolls: number[];
   defenderRolls: number[];
   message: string;
+  attackerName?: string;
+  defenderName?: string;
   onClose: () => void;
-  // رنگ بازیکن‌ها؛ اگر داده نشود رنگ پیش‌فرض (قرمز/آبی) استفاده می‌شود
-  attackerColor?: string | null;
-  defenderColor?: string | null;
-  attackerName?: string | null;
-  defenderName?: string | null;
-  conquered?: boolean;
 }
-
-const PIPS: Record<number, [number, number][]> = {
-  1: [[50, 50]],
-  2: [[28, 28], [72, 72]],
-  3: [[28, 28], [50, 50], [72, 72]],
-  4: [[28, 28], [72, 28], [28, 72], [72, 72]],
-  5: [[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]],
-  6: [[28, 25], [72, 25], [28, 50], [72, 50], [28, 75], [72, 75]],
-};
-
-// رنگ نقطه‌های تاس را بر اساس روشنایی رنگ بازیکن انتخاب می‌کنیم (روی زرد، نقطه‌ی تیره)
-function pipColorFor(hex: string): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return '#ffffff';
-  const n = parseInt(m[1], 16);
-  const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
-  return lum > 0.6 ? '#1a120b' : '#ffffff';
-}
-
-function darken(hex: string, amount: number): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return hex;
-  const n = parseInt(m[1], 16);
-  const f = 1 - amount;
-  const r = Math.round((n >> 16) * f);
-  const g = Math.round(((n >> 8) & 255) * f);
-  const b = Math.round((n & 255) * f);
-  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
-}
-
-const Die: React.FC<{ value: number; color: string; state?: 'win' | 'lose' | 'none'; rolling?: boolean }> = ({ value, color, state = 'none', rolling }) => {
-  const pip = pipColorFor(color);
-  return (
-    <div
-      className={`relative w-16 h-16 transition-all duration-300 ${rolling ? 'animate-bounce' : ''} ${state === 'lose' ? 'opacity-45 scale-90' : ''} ${state === 'win' ? 'scale-105' : ''}`}
-    >
-      <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_3px_4px_rgba(0,0,0,0.6)]" role="img" aria-label={`تاس ${value}`}>
-        <rect x="4" y="4" width="92" height="92" rx="18" fill={color} stroke={darken(color, 0.45)} strokeWidth="5" />
-        <rect x="9" y="9" width="82" height="82" rx="14" fill="none" stroke="#ffffff" strokeOpacity="0.22" strokeWidth="2" />
-        {PIPS[value]?.map(([cx, cy], i) => (
-          <circle key={i} cx={cx} cy={cy} r="8.5" fill={pip} />
-        ))}
-      </svg>
-      {state === 'win' && <span className="absolute -top-2 -left-2 text-sm">✅</span>}
-      {state === 'lose' && <span className="absolute -top-2 -left-2 text-sm">❌</span>}
-    </div>
-  );
-};
 
 export const DiceModal: React.FC<DiceModalProps> = ({
   attackerRolls,
   defenderRolls,
   message,
+  attackerName = 'مهاجم',
+  defenderName = 'مدافع',
   onClose,
-  attackerColor,
-  defenderColor,
-  attackerName,
-  defenderName,
-  conquered,
 }) => {
-  const aColor = attackerColor || '#dc2626';
-  const dColor = defenderColor || '#2563eb';
-
-  // انیمیشن کوتاه پرتاب؛ بعد نتیجه‌ی واقعی نشان داده می‌شود
-  const [rolling, setRolling] = useState<boolean>(true);
-  const [tick, setTick] = useState<number>(0);
-  useEffect(() => {
-    setRolling(true);
-    const iv = setInterval(() => setTick((t) => t + 1), 80);
-    const to = setTimeout(() => {
-      setRolling(false);
-      clearInterval(iv);
-    }, 650);
-    return () => {
-      clearInterval(iv);
-      clearTimeout(to);
+  // الگوی نقاط تاس (1 تا 6)
+  const renderDiceDots = (value: number, isAttacker: boolean) => {
+    const dotColor = isAttacker ? 'bg-white' : 'bg-gray-900';
+    
+    const dotsMap: Record<number, string[]> = {
+      1: ['col-start-2 row-start-2'],
+      2: ['col-start-1 row-start-1', 'col-start-3 row-start-3'],
+      3: ['col-start-1 row-start-1', 'col-start-2 row-start-2', 'col-start-3 row-start-3'],
+      4: ['col-start-1 row-start-1', 'col-start-3 row-start-1', 'col-start-1 row-start-3', 'col-start-3 row-start-3'],
+      5: ['col-start-1 row-start-1', 'col-start-3 row-start-1', 'col-start-2 row-start-2', 'col-start-1 row-start-3', 'col-start-3 row-start-3'],
+      6: ['col-start-1 row-start-1', 'col-start-3 row-start-1', 'col-start-1 row-start-2', 'col-start-3 row-start-2', 'col-start-1 row-start-3', 'col-start-3 row-start-3'],
     };
-  }, [attackerRolls, defenderRolls]);
 
-  const fake = (seed: number) => ((seed * 7 + tick * 3) % 6) + 1;
+    const positions = dotsMap[value] || [];
 
-  // مقایسه‌ی جفت‌به‌جفت (بزرگ‌ترین‌ها با هم)؛ تساوی به نفع مدافع
-  const pairs = Math.min(attackerRolls.length, defenderRolls.length);
-  const attackerState = (i: number): 'win' | 'lose' | 'none' => (i < pairs ? (attackerRolls[i] > defenderRolls[i] ? 'win' : 'lose') : 'none');
-  const defenderState = (i: number): 'win' | 'lose' | 'none' => (i < pairs ? (attackerRolls[i] > defenderRolls[i] ? 'lose' : 'win') : 'none');
+    return (
+      <div className="grid grid-cols-3 grid-rows-3 w-10 h-10 p-1.5 gap-0.5">
+        {positions.map((pos, idx) => (
+          <span key={idx} className={`w-2 h-2 rounded-full ${dotColor} ${pos}`} />
+        ))}
+      </div>
+    );
+  };
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" dir="rtl" onClick={() => !rolling && onClose()}>
-      <div
-        className="bg-[#2b1e16] border-2 border-amber-600 p-6 rounded-2xl max-w-md w-full text-center space-y-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-lg font-bold text-amber-400">🎲 نتیجه‌ی نبرد</h3>
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4" dir="rtl">
+      <div className="bg-[#2b1e16] border-2 border-amber-600 p-6 rounded-2xl max-w-md w-full text-center space-y-5 shadow-2xl animate-fade-in">
+        <h3 className="text-xl font-black text-amber-400 flex items-center justify-center gap-2">
+          <span>🎲</span> نتيجه‌ی نبرد
+        </h3>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <p className="text-xs font-bold flex items-center justify-center gap-1.5" style={{ color: aColor }}>
-              <span className="w-2.5 h-2.5 rounded-full border border-white/30" style={{ backgroundColor: aColor }} />
-              مهاجم{attackerName ? ` (${attackerName})` : ''}
-            </p>
-            <div className="flex flex-wrap justify-center gap-2 min-h-[4.5rem]">
-              {attackerRolls.map((v, i) => (
-                <Die key={i} value={rolling ? fake(i + 1) : v} color={aColor} state={rolling ? 'none' : attackerState(i)} rolling={rolling} />
+        <div className="grid grid-cols-2 gap-4 bg-[#1a120b] p-4 rounded-xl border border-[#8c653d]">
+          {/* بخش مهاجم (قرمز ثابت) */}
+          <div className="flex flex-col items-center gap-2 border-l border-[#8c653d]/40 pl-2">
+            <span className="text-xs font-bold text-red-400 flex items-center gap-1">
+              🔴 مهاجم ({attackerName})
+            </span>
+            <div className="flex flex-wrap justify-center gap-2 min-h-[50px] items-center">
+              {attackerRolls.map((val, idx) => (
+                <div key={idx} className="bg-red-600 rounded-xl shadow-lg border-2 border-red-400 flex items-center justify-center">
+                  {renderDiceDots(val, true)}
+                </div>
               ))}
             </div>
           </div>
-          <div className="space-y-2">
-            <p className="text-xs font-bold flex items-center justify-center gap-1.5" style={{ color: dColor }}>
-              <span className="w-2.5 h-2.5 rounded-full border border-white/30" style={{ backgroundColor: dColor }} />
-              مدافع{defenderName ? ` (${defenderName})` : ''}
-            </p>
-            <div className="flex flex-wrap justify-center gap-2 min-h-[4.5rem]">
-              {defenderRolls.map((v, i) => (
-                <Die key={i} value={rolling ? fake(i + 4) : v} color={dColor} state={rolling ? 'none' : defenderState(i)} rolling={rolling} />
+
+          {/* بخش مدافع (سفید/خاکستری ثابت) */}
+          <div className="flex flex-col items-center gap-2 pr-2">
+            <span className="text-xs font-bold text-gray-300 flex items-center gap-1">
+              ⚪ مدافع ({defenderName})
+            </span>
+            <div className="flex flex-wrap justify-center gap-2 min-h-[50px] items-center">
+              {defenderRolls.map((val, idx) => (
+                <div key={idx} className="bg-gray-100 rounded-xl shadow-lg border-2 border-gray-400 flex items-center justify-center">
+                  {renderDiceDots(val, false)}
+                </div>
               ))}
             </div>
           </div>
         </div>
 
-        <p className={`text-sm font-bold ${conquered ? 'text-emerald-400' : 'text-amber-200'} min-h-[1.5rem]`}>{rolling ? '...' : message}</p>
-        <p className="text-[10px] text-amber-300/60">هر تاس با تاس هم‌رتبه‌اش مقایسه می‌شود؛ در تساوی، مدافع برنده است.</p>
+        <p className="text-sm font-bold text-emerald-300 bg-[#1a120b] py-2 px-3 rounded-lg border border-emerald-800/50">
+          {message}
+        </p>
 
         <button
           onClick={onClose}
-          disabled={rolling}
-          className="px-8 py-2.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs cursor-pointer"
+          className="w-full py-3 bg-amber-600 hover:bg-amber-500 font-bold text-sm text-white rounded-xl shadow-lg cursor-pointer transition-all active:scale-95"
         >
           ادامه
         </button>
