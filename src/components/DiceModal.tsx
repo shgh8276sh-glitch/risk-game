@@ -25,7 +25,6 @@ export const DiceModal: React.FC<DiceModalProps> = ({
 
   useEffect(() => {
     setRolling(true);
-    // انیمیشن چرخش روان و سریع برای بالا بردن سرعت بازی و جلوگیری از لگ
     const interval = setInterval(() => {
       setDisplayAttacker(attackerRolls.map(() => Math.floor(Math.random() * 6) + 1));
       setDisplayDefender(defenderRolls.map(() => Math.floor(Math.random() * 6) + 1));
@@ -36,7 +35,7 @@ export const DiceModal: React.FC<DiceModalProps> = ({
       setDisplayAttacker(attackerRolls);
       setDisplayDefender(defenderRolls);
       setRolling(false);
-    }, 1000); // زمان چرخش ۱ ثانیه برای حفظ سرعت و جذابیت
+    }, 1000);
 
     return () => {
       clearInterval(interval);
@@ -75,7 +74,7 @@ export const DiceModal: React.FC<DiceModalProps> = ({
 
         <div className="grid grid-cols-2 gap-4 bg-[#1a120b] p-4 rounded-xl border border-[#8c653d]">
           
-          {/* سمت راست: مهاجم (با رنگ نارنجی غیرمرتبط با بازیکنان) */}
+          {/* سمت راست: مهاجم (نام بازیکن دقیقاً در کنار نقش نوشته می‌شود) */}
           <div className="flex flex-col items-center gap-2 border-l border-[#8c653d]/40 pl-2">
             <span className="text-xs font-bold text-orange-400 flex items-center gap-1">
               🟧 مهاجم ({attackerName})
@@ -94,7 +93,7 @@ export const DiceModal: React.FC<DiceModalProps> = ({
             </div>
           </div>
 
-          {/* سمت چپ: مدافع (با رنگ خاکستری تیره غیرمرتبط با بازیکنان) */}
+          {/* سمت چپ: مدافع (نام بازیکن دقیقاً در کنار نقش نوشته می‌شود) */}
           <div className="flex flex-col items-center gap-2 pr-2">
             <span className="text-xs font-bold text-gray-300 flex items-center gap-1">
               ⬛ مدافع ({defenderName})
