@@ -40,8 +40,16 @@ const COLOR_BY_WORD = {
 };
 
 const SYMBOL_BONUS = { infantry: 4, cavalry: 6, artillery: 8, different: 10 };
-const STAR_BONUS = { 2: 2, 3: 4, 4: 7, 5: 10, 6: 13 };
-const MIN_CARDS_FOR_STARS = 2;
+const STAR_BONUS = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 10, 6: 13 };
+const MIN_CARDS_FOR_STARS = 1;
+
+// پاداش ستاره‌ها؛ برای بیشتر از ۶ ستاره به ازای هر ستاره‌ی اضافه ۳ سرباز اضافه می‌شود
+function starBonus(stars) {
+  if (stars <= 0) return 0;
+  if (STAR_BONUS[stars]) return STAR_BONUS[stars];
+  const maxKey = Math.max(...Object.keys(STAR_BONUS).map(Number));
+  return STAR_BONUS[maxKey] + (stars - maxKey) * 3;
+}
 const CARD_TYPES = ['infantry', 'cavalry', 'artillery'];
 
 const app = express();
@@ -191,9 +199,10 @@ function evaluateCardSet(cards) {
     }
   }
 
-  if (cards.length >= MIN_CARDS_FOR_STARS && cards.length <= 3) {
+  if (cards.length >= MIN_CARDS_FOR_STARS) {
     const stars = cards.reduce((sum, c) => sum + (c.stars || 1), 0);
-    if (STAR_BONUS[stars]) consider(STAR_BONUS[stars], 'stars');
+    const bonus = starBonus(stars);
+    if (bonus > 0) consider(bonus, 'stars');
   }
 
   return best || { valid: false, bonus: 0, method: null };
@@ -286,11 +295,17 @@ function handleElimination(state, victimId, killerId) {
   const victim = state.players.find((p) => p.id === victimId);
   const killer = state.players.find((p) => p.id === killerId);
   if (!victim || !killer) return;
-  if (victim.cards && victim.cards.length > 0) {
+  const transferred = Array.isArray(victim.cards) ? victim.cards.length : 0;
+  if (transferred > 0) {
     killer.cards = [...(killer.cards || []), ...victim.cards];
     victim.cards = [];
   }
-  addLog(state, `💀 ${victim.name} حذف شد (توسط ${killer.name})`);
+  addLog(
+    state,
+    transferred > 0
+      ? `💀 ${victim.name} حذف شد (توسط ${killer.name}) و ${transferred} کارتش به ${killer.name} رسید`
+      : `💀 ${victim.name} حذف شد (توسط ${killer.name})`
+  );
 }
 
 const emitDiceReady = (roomCode, room) => {
@@ -975,7 +990,7 @@ io.on('connection', (socket) => {
     const ids = Array.isArray(cardIds) ? Array.from(new Set(cardIds)) : [];
     const player = state.players[state.activePlayerIndex];
     const selected = ids.map((id) => (player.cards || []).find((c) => c.id === id));
-    if (ids.length < 2 || ids.length > 3 || selected.some((c) => !c)) {
+    if (ids.length < MIN_CARDS_FOR_STARS || selected.some((c) => !c)) {
       return reply({ success: false, message: 'کارت‌های انتخاب‌شده نامعتبر است.', state: clone(state) });
     }
 
